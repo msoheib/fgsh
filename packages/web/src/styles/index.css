@@ -1,0 +1,108 @@
+/* Ara Hamah Zanki Font - Local font files */
+@font-face {
+  font-family: 'Ara Hamah Zanki';
+  src: url('/fonts/AraHamahZanki.woff2') format('woff2'),
+       url('/fonts/AraHamahZanki.woff') format('woff');
+  font-weight: 400 800;
+  font-display: swap;
+}
+
+/* Fallback font from Google Fonts (used if local font not available) */
+@import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * {
+    @apply box-border;
+  }
+
+  body {
+    @apply font-arabic text-white antialiased;
+    direction: rtl;
+  }
+
+  html {
+    direction: rtl;
+  }
+}
+
+@layer components {
+  /* Glass morphism effect */
+  .glass {
+    @apply bg-white/10 backdrop-blur-glass border border-white/20;
+  }
+
+  /* Gradient button base */
+  .btn-gradient {
+    @apply px-8 py-4 rounded-full font-bold text-white shadow-lg hover:shadow-xl transform hover:scale-105 transition-all duration-300;
+  }
+
+  /* Cyan gradient button (primary action) */
+  .btn-cyan {
+    @apply bg-gradient-to-r from-secondary-main to-secondary-light;
+  }
+
+  /* Pink gradient button (secondary action) - with vibrant glow */
+  .btn-pink {
+    @apply bg-gradient-to-r from-accent-main to-accent-light shadow-glow-pink;
+  }
+
+  /* Purple gradient button */
+  .btn-purple {
+    @apply bg-gradient-to-r from-primary-solid to-primary-end;
+  }
+
+  /* Input field glass style */
+  .input-glass {
+    @apply glass px-6 py-4 rounded-2xl text-white placeholder-white/60 focus:outline-none focus:ring-2 focus:ring-secondary-main transition-all w-full;
+  }
+
+  /* Card with glass effect - with vibrant purple border */
+  .card-glass {
+    @apply bg-white/5 backdrop-blur-glass rounded-3xl p-6 shadow-xl border-2;
+    border-color: rgba(139, 92, 246, 0.4);
+  }
+}
+
+/* Custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: rgba(124, 58, 237, 0.5);
+  border-radius: 10px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: rgba(124, 58, 237, 0.7);
+}
+
+/* Animations */
+@keyframes shimmer {
+  0% {
+    background-position: -1000px 0;
+  }
+  100% {
+    background-position: 1000px 0;
+  }
+}
+
+.animate-shimmer {
+  animation: shimmer 2s infinite linear;
+  background: linear-gradient(
+    to right,
+    transparent 0%,
+    rgba(255, 255, 255, 0.3) 50%,
+    transparent 100%
+  );
+  background-size: 1000px 100%;
+}

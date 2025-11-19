@@ -1,0 +1,8 @@
+
+EXPO_PUBLIC_SUPABASE_URL=https://yabticelgerjwzrhyaye.supabase.co
+EXPO_PUBLIC_SUPABASE_KEY=<prefer publishable key instead of anon key for mobile and desktop apps>
+
+
+
+VITE_SUPABASE_URL=https://yabticelgerjwzrhyaye.supabase.co
+VITE_SUPABASE_ANON_KEY=eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhYnRpY2VsZ2Vyand6cmh5YXllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA4NzcyNDQsImV4cCI6MjA3NjQ1MzI0NH0.hSFVkv5OtIe_1dYz57bzgPqVEfVxtToww_NtkcIVyDo
