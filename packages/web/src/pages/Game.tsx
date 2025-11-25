@@ -9,12 +9,11 @@ import { useGameStore, useRoundStore, GAME_CONFIG } from '@fakash/shared';
 
 export const Game: React.FC = () => {
   const navigate = useNavigate();
-  const { game, currentPlayer, players, isHost, isPhaseCaptain, isDisplayMode, rehydrationAttempted } = useGameStore();
+  const { game, currentPlayer, players, isPhaseCaptain, isDisplayMode, rehydrationAttempted } = useGameStore();
   const {
     currentRound,
     question,
     roundStatus,
-    myAnswer,
     hasSubmittedAnswer,
     allAnswers,
     hasSubmittedVote,
@@ -464,7 +463,7 @@ export const Game: React.FC = () => {
                     }
                   }}
                   disabled={
-                    isDisplayMode || hasSubmittedVote || (currentPlayer && answer.player_id != null && answer.player_id === currentPlayer.id)
+                    !!isDisplayMode || !!hasSubmittedVote || !!(currentPlayer && answer.player_id != null && answer.player_id === currentPlayer.id)
                   }
                   className={`w-full p-3 sm:p-4 rounded-2xl font-bold text-base sm:text-lg transition-all ${
                     selectedAnswer === answer.id

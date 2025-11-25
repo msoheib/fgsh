@@ -1,5 +1,5 @@
 import { getSupabase } from './supabase';
-import { Player, PlayerAnswer, Vote, ScoreResult, GameError, ErrorType } from '../types';
+import { Player, GameError, ErrorType } from '../types';
 import { calculateRoundScores, aggregateScores } from '../utils/scoring';
 
 export class ScoringService {

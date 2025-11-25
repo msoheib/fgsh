@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Game, Player, GameSettings, GameRound, Question } from '../types';
+import { Game, Player, GameSettings, GameRound, Question, PlayerAnswer } from '../types';
 import { GameService, RealtimeService } from '../services';
 import { saveGameSession, clearGameSession, getGameSession } from '../utils/sessionStorage';
 import { GAME_CONFIG } from '../constants/game';
@@ -19,7 +19,7 @@ interface GameState {
   isLoading: boolean;
   error: string | null;
   rehydrationAttempted: boolean; // Whether session rehydration has been attempted
-  roundEndResetTimeout: NodeJS.Timeout | null; // Track timeout for round end reset
+  roundEndResetTimeout: ReturnType<typeof setTimeout> | null; // Track timeout for round end reset
 
   // Actions
   createGame: (hostName: string, settings: GameSettings) => Promise<void>;
@@ -439,7 +439,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             });
           });
         },
-        onAnswerSubmitted: (playerId, hasSubmitted) => {
+        onAnswerSubmitted: (playerId, _hasSubmitted) => {
           console.log('📺 [Display Mode] Answer submitted:', playerId);
           // Display mode just observes
         },
@@ -453,7 +453,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             });
           });
         },
-        onVoteSubmitted: (voterId, answerId) => {
+        onVoteSubmitted: (voterId, _answerId) => {
           console.log('📺 [Display Mode] Vote submitted:', voterId);
           // Display mode just observes
         },
@@ -571,7 +571,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   joinGame: async (code: string, playerName: string) => {
     // Disconnect from old game if player was in one
     const oldSession = getGameSession();
-    if (oldSession) {
+    if (oldSession && oldSession.playerId) {
       try {
         // Mark player as disconnected in old game
         await GameService.updatePlayerStatus(oldSession.playerId, 'disconnected');
@@ -894,7 +894,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
             if (question) {
               // Fetch answers if in voting phase
-              let answers = [];
+              let answers: PlayerAnswer[] = [];
               if (currentRound.status === 'voting') {
                 answers = await RoundService.getRoundAnswers(currentRound.id);
               }
@@ -1083,7 +1083,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             }
           });
         },
-        onRoundEnded: async (roundId: string) => {
+        onRoundEnded: async (_roundId: string) => {
           const currentGame = get().game;
           if (!currentGame) return;
 

@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { type PaymentPlanId } from '@fakash/shared';
 import { GlassCard } from '../GlassCard';
-import { GradientButton } from '../GradientButton';
 import { PricingPlans } from './PlanCard';
 import { MoyasarPaymentForm } from './MoyasarPaymentForm';
 

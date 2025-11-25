@@ -31,6 +31,7 @@ export type GameEventCallbacks = {
 
   // Vote events
   onVoteSubmitted?: (voterId: string, roundId: string) => void;
+  onVotingStarted?: (answers: PlayerAnswer[]) => void;
   onAllVotesSubmitted?: () => void;
 
   // Score events
@@ -45,7 +46,7 @@ export type GameEventCallbacks = {
 
 export class RealtimeService {
   private static channels: Map<string, RealtimeChannel> = new Map();
-  private static retryTimers: Map<string, NodeJS.Timeout> = new Map();
+  private static retryTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private static retryAttempts: Map<string, number> = new Map();
   private static readonly MAX_RETRY_ATTEMPTS = 5;
   private static readonly BASE_RETRY_DELAY = 1000; // 1 second
@@ -193,7 +194,7 @@ export class RealtimeService {
         // Filter out correct answer (system-inserted during phase transition)
         // The correct answer is added server-side when transitioning to voting phase
         // and should not trigger player submission tracking
-        if (!answer.is_correct) {
+        if (!answer.is_correct && answer.player_id) {
           callbacks.onAnswerSubmitted?.(answer.player_id, answer.round_id);
         }
       }

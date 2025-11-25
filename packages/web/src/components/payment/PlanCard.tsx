@@ -1,5 +1,5 @@
 import React from 'react';
-import { MOYASAR_CONFIG, type PaymentPlanId, formatPrice } from '@fakash/shared';
+import { MOYASAR_CONFIG, type PaymentPlanId } from '@fakash/shared';
 import { GradientButton } from '../GradientButton';
 
 interface PlanCardProps {

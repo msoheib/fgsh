@@ -41,11 +41,13 @@ export function getGameSession(): GameSession | null {
     const session: GameSession = JSON.parse(data);
 
     // Check if session is expired (4 hours)
-    const age = Date.now() - session.joinedAt;
-    if (age > SESSION_EXPIRY_MS) {
-      console.log('⏰ Session expired, clearing...');
-      clearGameSession();
-      return null;
+    if (session.joinedAt) {
+      const age = Date.now() - session.joinedAt;
+      if (age > SESSION_EXPIRY_MS) {
+        console.log('⏰ Session expired, clearing...');
+        clearGameSession();
+        return null;
+      }
     }
 
     console.log('📂 Game session loaded from localStorage', session);

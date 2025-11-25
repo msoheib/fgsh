@@ -35,6 +35,9 @@ export function calculateRoundScores(
       });
     } else {
       // This is a fake answer - player gets points for each vote
+      // Skip system-inserted answers (player_id = null)
+      if (!answer.player_id) return;
+
       points = votesForAnswer.length * GAME_CONFIG.POINTS.PER_FOOLED_PLAYER;
 
       // Bonus for perfect fake (nobody voted for it AND it wasn't correct)
@@ -99,13 +102,13 @@ export function getFooledRelationships(
   const relationships: Map<string, Set<string>> = new Map();
 
   answers
-    .filter((a) => !a.is_correct)
+    .filter((a) => !a.is_correct && a.player_id !== null)
     .forEach((answer) => {
       const fooledBy = votes
         .filter((v) => v.answer_id === answer.id)
         .map((v) => v.voter_id);
 
-      if (fooledBy.length > 0) {
+      if (fooledBy.length > 0 && answer.player_id) {
         relationships.set(answer.player_id, new Set(fooledBy));
       }
     });

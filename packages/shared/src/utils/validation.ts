@@ -47,7 +47,7 @@ export function validateGameSettings(settings: {
   maxPlayers: number;
 }): void {
   if (
-    !GAME_CONFIG.ROUND_OPTIONS.includes(settings.roundCount) ||
+    !GAME_CONFIG.ROUND_OPTIONS.includes(settings.roundCount as typeof GAME_CONFIG.ROUND_OPTIONS[number]) ||
     settings.roundCount < GAME_CONFIG.MIN_ROUNDS ||
     settings.roundCount > GAME_CONFIG.MAX_ROUNDS
   ) {

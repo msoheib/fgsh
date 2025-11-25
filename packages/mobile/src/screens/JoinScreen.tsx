@@ -2,12 +2,15 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, KeyboardAvoidingView, Platform } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useGameStore } from '@fakash/shared';
+import { QRScanner } from '../components/inputs/QRScanner';
+import { Logo } from '../components/core/Logo';
 
 export const JoinScreen: React.FC = () => {
   const navigation = useNavigation();
   const { joinGame, isLoading, error } = useGameStore();
   const [gameCode, setGameCode] = useState('');
   const [playerName, setPlayerName] = useState('');
+  const [showScanner, setShowScanner] = useState(false);
 
   const handleJoin = async () => {
     if (!gameCode.trim() || !playerName.trim()) {
@@ -28,8 +31,7 @@ export const JoinScreen: React.FC = () => {
       style={styles.container}
     >
       <View style={styles.content}>
-        <Text style={styles.title}>فقش 🎮</Text>
-        <Text style={styles.subtitle}>Fakash Game</Text>
+        <Logo size="lg" style={styles.logo} />
 
         <View style={styles.form}>
           <TextInput
@@ -41,6 +43,23 @@ export const JoinScreen: React.FC = () => {
             autoCapitalize="characters"
             maxLength={6}
           />
+
+          {/* QR Scan Button */}
+          <TouchableOpacity
+            style={styles.scanButton}
+            onPress={() => setShowScanner(true)}
+            disabled={isLoading}
+          >
+            <Text style={styles.scanIcon}>📷</Text>
+            <Text style={styles.scanButtonText}>مسح QR للانضمام</Text>
+            <Text style={styles.scanButtonSubtext}>Scan QR Code</Text>
+          </TouchableOpacity>
+
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>أو</Text>
+            <View style={styles.dividerLine} />
+          </View>
 
           <TextInput
             style={styles.input}
@@ -66,6 +85,16 @@ export const JoinScreen: React.FC = () => {
           </TouchableOpacity>
         </View>
       </View>
+
+      {/* QR Scanner Modal */}
+      <QRScanner
+        visible={showScanner}
+        onScan={(scannedCode) => {
+          setGameCode(scannedCode.toUpperCase());
+          setShowScanner(false);
+        }}
+        onClose={() => setShowScanner(false)}
+      />
     </KeyboardAvoidingView>
   );
 };
@@ -81,16 +110,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     padding: 20,
   },
-  title: {
-    fontSize: 64,
-    color: '#ffffff',
-    fontWeight: '800',
-    marginBottom: 16,
-  },
-  subtitle: {
-    fontSize: 24,
-    color: '#a78bfa',
-    fontWeight: '600',
+  logo: {
     marginBottom: 48,
   },
   form: {
@@ -125,5 +145,44 @@ const styles = StyleSheet.create({
     color: '#ef4444',
     textAlign: 'center',
     marginBottom: 16,
+  },
+  scanButton: {
+    backgroundColor: 'rgba(139, 92, 246, 0.2)',
+    borderWidth: 2,
+    borderColor: '#8b5cf6',
+    borderStyle: 'dashed',
+    borderRadius: 16,
+    padding: 20,
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  scanIcon: {
+    fontSize: 40,
+    marginBottom: 8,
+  },
+  scanButtonText: {
+    color: '#ffffff',
+    fontSize: 18,
+    fontWeight: 'bold',
+    marginBottom: 4,
+  },
+  scanButtonSubtext: {
+    color: '#a78bfa',
+    fontSize: 14,
+  },
+  divider: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginVertical: 16,
+  },
+  dividerLine: {
+    flex: 1,
+    height: 1,
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+  },
+  dividerText: {
+    color: '#9ca3af',
+    paddingHorizontal: 12,
+    fontSize: 14,
   },
 });

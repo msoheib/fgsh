@@ -1,3 +1,5 @@
+/// <reference types="vite/client" />
+
 /**
  * Environment variable helper - Web version
  * Uses import.meta.env for Vite

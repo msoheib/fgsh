@@ -85,7 +85,7 @@ export class RoundService {
     roundId: string,
     playerId: string,
     answerText: string,
-    correctAnswer: string
+    _correctAnswer: string
   ): Promise<PlayerAnswer> {
     const supabase = getSupabase();
 

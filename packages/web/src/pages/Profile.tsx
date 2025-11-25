@@ -44,7 +44,7 @@ export const Profile: React.FC = () => {
 
       // Load payment history
       const paymentHistory = await PaymentService.getPaymentHistory();
-      setPayments(paymentHistory || []);
+      setPayments(paymentHistory?.map(p => ({ ...p, paid_at: p.paid_at ?? null })) || []);
     } catch (error) {
       console.error('Failed to load profile data:', error);
     } finally {

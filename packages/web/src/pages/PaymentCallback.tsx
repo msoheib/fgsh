@@ -17,7 +17,6 @@ export const PaymentCallback: React.FC = () => {
 
   useEffect(() => {
     const paymentId = searchParams.get('id');
-    const planId = searchParams.get('plan');
 
     if (!paymentId) {
       setStatus('error');

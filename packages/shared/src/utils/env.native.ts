@@ -3,6 +3,9 @@
  * Uses process.env and Constants.expoConfig for React Native
  */
 
+// Declare __DEV__ global for React Native
+declare const __DEV__: boolean | undefined;
+
 // Conditionally import Constants if available
 let Constants: any = null;
 try {

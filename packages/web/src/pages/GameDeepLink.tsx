@@ -19,7 +19,7 @@ export const GameDeepLink: React.FC = () => {
     // Check if there's an existing session
     const session = getGameSession();
 
-    if (session && session.gameCode.toUpperCase() === code.toUpperCase()) {
+    if (session && session.gameCode?.toUpperCase() === code.toUpperCase()) {
       // Session exists and matches this game code - redirect to /game
       // The rehydration logic in App.tsx will handle restoring the session
       navigate('/game', { replace: true });
