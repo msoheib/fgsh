@@ -1,4 +1,6 @@
 /* Ara Hamah Zanki Font - Local font files */
+/* Commented out until font files are added to /public/fonts/ */
+/*
 @font-face {
   font-family: 'Ara Hamah Zanki';
   src: url('/fonts/AraHamahZanki.woff2') format('woff2'),
@@ -6,6 +8,7 @@
   font-weight: 400 800;
   font-display: swap;
 }
+*/
 
 /* Fallback font from Google Fonts (used if local font not available) */
 @import url('https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&display=swap');

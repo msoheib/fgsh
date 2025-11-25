@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { initializeSupabase, useGameStore } from '@fakash/shared';
+import { initializeSupabase, useGameStore, useAuthStore } from '@fakash/shared';
 
 // Pages
 import { Home } from './pages/Home';
@@ -12,9 +12,15 @@ import { Lobby } from './pages/Lobby';
 import { Game } from './pages/Game';
 import { GameDeepLink } from './pages/GameDeepLink';
 import { Results } from './pages/Results';
+import { PaymentCallback } from './pages/PaymentCallback';
+import { Profile } from './pages/Profile';
+
+// Components
+import { ProtectedRoute } from './components/ProtectedRoute';
 
 function AppContent() {
   const navigate = useNavigate();
+  const { checkSession } = useAuthStore();
   const [isRehydrating, setIsRehydrating] = useState(true);
 
   useEffect(() => {
@@ -29,6 +35,9 @@ function AppContent() {
     }
 
     initializeSupabase(supabaseUrl, supabaseAnonKey);
+
+    // Check auth session
+    checkSession();
 
     // Attempt to rehydrate session from localStorage
     const rehydrateSession = useGameStore.getState().rehydrateSession;
@@ -73,13 +82,24 @@ function AppContent() {
     <>
       <Routes>
         <Route path="/" element={<Home />} />
-        <Route path="/create" element={<CreateGame />} />
         <Route path="/join" element={<JoinGame />} />
         <Route path="/how-to-play" element={<HowToPlay />} />
+
+        {/* Create Game - handles auth internally with modal */}
+        <Route path="/create" element={<CreateGame />} />
+
+        {/* Profile - requires authentication */}
+        <Route path="/profile" element={<Profile />} />
+
+        {/* Protected routes - require authentication */}
+        <Route path="/payment/callback" element={<ProtectedRoute><PaymentCallback /></ProtectedRoute>} />
+
+        {/* Game routes - accessible to all */}
         <Route path="/lobby" element={<Lobby />} />
         <Route path="/game/:code" element={<GameDeepLink />} />
         <Route path="/game" element={<Game />} />
         <Route path="/results" element={<Results />} />
+
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
 

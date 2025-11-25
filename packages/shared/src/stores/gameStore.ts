@@ -27,7 +27,7 @@ interface GameState {
   joinGame: (code: string, playerName: string) => Promise<void>;
   rehydrateSession: () => Promise<boolean>; // Restore session after refresh
   startGame: () => Promise<void>;
-  leaveGame: () => void;
+  leaveGame: () => Promise<void>;
   setPlayers: (players: Player[]) => void;
   addPlayer: (player: Player) => void;
   removePlayer: (playerId: string) => void;
@@ -1259,20 +1259,34 @@ export const useGameStore = create<GameState>((set, get) => ({
   },
 
   // Leave game
-  leaveGame: () => {
-    const { game, currentPlayer } = get();
+  leaveGame: async () => {
+    const { game, currentPlayer, isHost, isDisplayMode } = get();
 
-    // Update player connection status to disconnected
-    if (game && currentPlayer) {
+    if (!game) {
+      clearGameSession();
+      get().reset();
+      return;
+    }
+
+    // Host or display mode: end the game for everyone
+    if (isHost || isDisplayMode) {
+      try {
+        console.log('🔚 Host/Display leaving - ending game for all players');
+        await GameService.endGame(game.id);
+      } catch (err) {
+        console.error('Failed to end game when host/display left:', err);
+      }
+    }
+
+    // Players: mark disconnected
+    if (currentPlayer && !isDisplayMode) {
       GameService.updatePlayerStatus(currentPlayer.id, 'disconnected').catch(err => {
         console.error('Failed to update player status:', err);
       });
     }
 
     // Unsubscribe from realtime
-    if (game) {
-      RealtimeService.unsubscribe(game.id);
-    }
+    RealtimeService.unsubscribe(game.id);
 
     // Clear localStorage session
     clearGameSession();

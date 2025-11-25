@@ -21,6 +21,13 @@ export class GameService {
   ): Promise<{ game: Game; player: Player }> {
     const supabase = getSupabase();
 
+    // Get authenticated user (required for hosts)
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      throw new GameError(ErrorType.INVALID_INPUT, 'يجب تسجيل الدخول لإنشاء لعبة');
+    }
+
     // Validate inputs
     validatePlayerName(hostName);
     validateGameSettings(settings);
@@ -49,7 +56,7 @@ export class GameService {
       throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to generate unique code');
     }
 
-    // Create game
+    // Create game with authenticated host
     const { data: game, error: gameError } = await supabase
       .from('games')
       .insert({
@@ -57,6 +64,7 @@ export class GameService {
         round_count: settings.roundCount,
         max_players: settings.maxPlayers,
         status: 'waiting',
+        auth_host_id: user.id,
       })
       .select()
       .single();
@@ -98,6 +106,13 @@ export class GameService {
   static async createGameForDisplay(settings: GameSettings): Promise<Game> {
     const supabase = getSupabase();
 
+    // Get authenticated user (required for hosts)
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError || !user) {
+      throw new GameError(ErrorType.INVALID_INPUT, 'يجب تسجيل الدخول لإنشاء لعبة');
+    }
+
     // Validate settings
     validateGameSettings(settings);
 
@@ -124,7 +139,7 @@ export class GameService {
       throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to generate unique code');
     }
 
-    // Create game without host or phase captain
+    // Create game without host or phase captain (but with authenticated host ID)
     const { data: game, error: gameError } = await supabase
       .from('games')
       .insert({
@@ -132,6 +147,7 @@ export class GameService {
         round_count: settings.roundCount,
         max_players: settings.maxPlayers,
         status: 'waiting',
+        auth_host_id: user.id,
         // host_id and phase_captain_id will be set when first player joins
       })
       .select()

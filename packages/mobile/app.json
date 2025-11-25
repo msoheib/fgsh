@@ -1,0 +1,52 @@
+{
+  "expo": {
+    "name": "Fakash",
+    "slug": "fakash",
+    "version": "1.0.0",
+    "platforms": [
+      "ios",
+      "android",
+      "web"
+    ],
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "dark",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#1a0933"
+    },
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.fakash.game",
+      "infoPlist": {
+        "UIViewControllerBasedStatusBarAppearance": false,
+        "ITSAppUsesNonExemptEncryption": false
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#1a0933"
+      },
+      "package": "com.fakash.game"
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "scheme": "fakash",
+    "plugins": [
+      "expo-font"
+    ],
+    "extra": {
+      "supabaseUrl": "https://yabticelgerjwzrhyaye.supabase.co",
+      "supabaseAnonKey": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InlhYnRpY2VsZ2Vyand6cmh5YXllIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjA4NzcyNDQsImV4cCI6MjA3NjQ1MzI0NH0.hSFVkv5OtIe_1dYz57bzgPqVEfVxtToww_NtkcIVyDo",
+      "eas": {
+        "projectId": "dfe30715-65b4-4456-b0aa-2888ccc9e4f0"
+      }
+    }
+  }
+}

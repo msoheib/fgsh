@@ -3,11 +3,22 @@ import { createClient, SupabaseClient } from '@supabase/supabase-js';
 // Initialize Supabase client
 let supabaseClient: SupabaseClient | null = null;
 
-export function initializeSupabase(url: string, anonKey: string) {
+export interface SupabaseOptions {
+  storage?: any;
+  detectSessionInUrl?: boolean;
+}
+
+export function initializeSupabase(url: string, anonKey: string, options?: SupabaseOptions) {
   if (!supabaseClient) {
+    const storage = options?.storage || (typeof window !== 'undefined' ? window.localStorage : undefined);
+    const detectSessionInUrl = options?.detectSessionInUrl ?? true;
+
     supabaseClient = createClient(url, anonKey, {
       auth: {
-        persistSession: false, // We're not using auth for MVP
+        persistSession: true, // Enable session persistence for host auth
+        autoRefreshToken: true,
+        detectSessionInUrl,
+        storage,
       },
       realtime: {
         params: {

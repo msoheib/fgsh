@@ -1,21 +1,61 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { useGameStore, GAME_CONFIG } from '@fakash/shared';
+import { useGameStore, GAME_CONFIG, useAuthStore, PaymentService } from '@fakash/shared';
+import { AuthModal } from '../components/auth';
+import { UpgradeModal } from '../components/payment';
 
 export const CreateGame: React.FC = () => {
   const navigate = useNavigate();
   const { createGame, createGameAsDisplay, isLoading, error } = useGameStore();
+  const { user, loading: authLoading } = useAuthStore();
 
   const [hostName, setHostName] = useState('');
   const [roundCount, setRoundCount] = useState(4);
   const [maxPlayers, setMaxPlayers] = useState(10);
   const [isDisplayMode, setIsDisplayMode] = useState(false);
 
+  // Auth modals
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [isCheckingEntitlement, setIsCheckingEntitlement] = useState(false);
+
+  // Check authentication on mount
+  useEffect(() => {
+    if (!authLoading && !user) {
+      setShowAuthModal(true);
+    }
+  }, [authLoading, user]);
+
   const handleCreateGame = async () => {
+    // Check authentication
+    if (!user) {
+      setShowAuthModal(true);
+      return;
+    }
+
+    // Check payment entitlement
+    setIsCheckingEntitlement(true);
+    try {
+      const entitlement = await PaymentService.checkHostEntitlement();
+      console.log('DEBUG: Host Entitlement:', entitlement);
+
+      if (!entitlement || !entitlement.can_create_games) {
+        // Show upgrade modal if user can't create games
+        console.log('DEBUG: Access Denied. Showing upgrade modal.');
+        setShowUpgradeModal(true);
+        setIsCheckingEntitlement(false);
+        return;
+      }
+    } catch (err) {
+      console.error('Failed to check entitlement:', err);
+      // Allow creation anyway if check fails (graceful degradation)
+    }
+    setIsCheckingEntitlement(false);
+
     // Display mode doesn't require host name (TV display-only)
     if (!isDisplayMode && !hostName.trim()) {
       alert('الرجاء إدخال اسمك');
@@ -42,9 +82,48 @@ export const CreateGame: React.FC = () => {
     }
   };
 
+  // Show loading while checking auth
+  if (authLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
+      {/* Session Indicator - Top Right */}
+      {user && (
+        <div className="fixed top-4 left-4 z-50">
+          <div className="glass px-4 py-2 rounded-full flex items-center gap-2 text-sm">
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-secondary-main to-secondary-light flex items-center justify-center text-xs font-bold">
+              {(user.user_metadata?.display_name || user.email)?.slice(0, 2).toUpperCase()}
+            </div>
+            <span className="text-white/80">
+              {user.user_metadata?.display_name || user.email?.split('@')[0] || 'مضيف'}
+            </span>
+          </div>
+        </div>
+      )}
+
       <Logo size="md" className="mb-6 sm:mb-8" />
+
+      {/* Auth Modal */}
+      <AuthModal
+        isOpen={showAuthModal}
+        onClose={() => {
+          setShowAuthModal(false);
+          navigate('/');
+        }}
+        onSuccess={() => setShowAuthModal(false)}
+      />
+
+      {/* Upgrade Modal */}
+      <UpgradeModal
+        isOpen={showUpgradeModal}
+        onClose={() => setShowUpgradeModal(false)}
+      />
 
       <GlassCard className="max-w-xl w-full">
         <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 sm:mb-8">إعدادات اللعبة</h2>
@@ -170,9 +249,9 @@ export const CreateGame: React.FC = () => {
             variant="pink"
             onClick={handleCreateGame}
             className="flex-1"
-            disabled={isLoading}
+            disabled={isLoading || isCheckingEntitlement}
           >
-            {isLoading ? <LoadingSpinner size="sm" /> : 'إنشاء غرفة'}
+            {isLoading || isCheckingEntitlement ? <LoadingSpinner size="sm" /> : 'إنشاء غرفة'}
           </GradientButton>
         </div>
       </GlassCard>

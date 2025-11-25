@@ -18,7 +18,7 @@ export const GAME_CONFIG = {
   // Timer durations (seconds)
   ANSWER_TIMER: 30,
   VOTING_TIMER: 20,
-  RESULTS_DISPLAY_DURATION: 20,
+  RESULTS_DISPLAY_DURATION: 25,
 
   // Score points
   POINTS: {

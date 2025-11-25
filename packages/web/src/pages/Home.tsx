@@ -3,12 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
+import { UserMenu } from '../components/UserMenu';
 
 export const Home: React.FC = () => {
   const navigate = useNavigate();
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
+      {/* User Menu - Top Right */}
+      <div className="fixed top-4 left-4 z-50">
+        <UserMenu />
+      </div>
+
       <div className="animate-slide-up w-full max-w-2xl">
         <Logo size="lg" className="mb-8 sm:mb-12" />
 

@@ -147,6 +147,8 @@ export enum ErrorType {
   DUPLICATE_NAME = 'الاسم مستخدم بالفعل',
   ANSWER_TIMEOUT = 'انتهى وقت الإجابة',
   VOTE_TIMEOUT = 'انتهى وقت التصويت',
+  INVALID_INPUT = 'مدخلات غير صحيحة',
+  UNAUTHORIZED = 'غير مصرح',
 }
 
 export class GameError extends Error {
