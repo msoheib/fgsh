@@ -44,6 +44,12 @@ export const JoinScreen: React.FC = () => {
             maxLength={6}
           />
 
+          <View style={styles.divider}>
+            <View style={styles.dividerLine} />
+            <Text style={styles.dividerText}>أو</Text>
+            <View style={styles.dividerLine} />
+          </View>
+
           {/* QR Scan Button */}
           <TouchableOpacity
             style={styles.scanButton}
@@ -54,12 +60,6 @@ export const JoinScreen: React.FC = () => {
             <Text style={styles.scanButtonText}>مسح QR للانضمام</Text>
             <Text style={styles.scanButtonSubtext}>Scan QR Code</Text>
           </TouchableOpacity>
-
-          <View style={styles.divider}>
-            <View style={styles.dividerLine} />
-            <Text style={styles.dividerText}>أو</Text>
-            <View style={styles.dividerLine} />
-          </View>
 
           <TextInput
             style={styles.input}
