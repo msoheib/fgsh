@@ -21,6 +21,19 @@ export class RoundService {
   ): Promise<{ round: GameRound; question: Question }> {
     const supabase = getSupabase();
 
+    // Check if round already exists (idempotent operation)
+    const { data: existingRound } = await supabase
+      .from('game_rounds')
+      .select('*, question:questions(*)')
+      .eq('game_id', gameId)
+      .eq('round_number', roundNumber)
+      .maybeSingle();
+
+    if (existingRound) {
+      console.log('✅ Round already exists, returning existing round:', existingRound);
+      return { round: existingRound, question: existingRound.question! };
+    }
+
     // Get a random question that hasn't been used in this game
     const { data: usedQuestionIds } = await supabase
       .from('game_rounds')
@@ -71,6 +84,21 @@ export class RoundService {
       .select()
       .single();
 
+    // Handle duplicate key error (race condition - another client created it simultaneously)
+    if (roundError && roundError.code === '23505') {
+      console.log('⚠️ Duplicate key error, fetching existing round...');
+      const { data: existing } = await supabase
+        .from('game_rounds')
+        .select('*, question:questions(*)')
+        .eq('game_id', gameId)
+        .eq('round_number', roundNumber)
+        .single();
+
+      if (existing) {
+        return { round: existing, question: existing.question! };
+      }
+    }
+
     if (roundError || !round) {
       throw new GameError(ErrorType.CONNECTION_LOST, roundError?.message);
     }
@@ -107,6 +135,25 @@ export class RoundService {
       .single();
 
     if (error) {
+      // Handle duplicate submissions gracefully (e.g. double-click, retry after reconnect)
+      if (error.code === '23505') {
+        console.log('⚠️ Duplicate answer detected, returning existing record');
+        const { data: existingAnswer, error: fetchError } = await supabase
+          .from('player_answers')
+          .select('*')
+          .eq('round_id', roundId)
+          .eq('player_id', playerId)
+          .single();
+
+        if (fetchError) {
+          throw new GameError(ErrorType.CONNECTION_LOST, fetchError.message);
+        }
+
+        if (existingAnswer) {
+          return existingAnswer;
+        }
+      }
+
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
 

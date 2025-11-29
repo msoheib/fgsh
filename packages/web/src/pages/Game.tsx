@@ -174,11 +174,8 @@ export const Game: React.FC = () => {
           if (err.message?.includes('No questions available')) {
             alert('لا توجد أسئلة في قاعدة البيانات. يرجى تشغيل seed.sql في Supabase');
             navigate('/');
-          } else if (err.message?.includes('duplicate key')) {
-            // Round already exists, ignore error and wait for Realtime
-            console.log('⚠️ Round already exists, waiting for Realtime event...');
-            roundCreationRef.current = game.current_round; // Mark as handled
           }
+          // Note: duplicate key errors are now handled gracefully by RoundService.createRound
         }
       }
     };
@@ -359,6 +356,54 @@ export const Game: React.FC = () => {
   const submittedCount = players.filter((p) =>
     allAnswers.some((a) => a.player_id === p.id)
   ).length;
+  const isFinalRound = currentRound.round_number === game.round_count;
+  const shouldShowNextRoundButton = !isFinalRound && isPhaseCaptain && !isDisplayMode;
+
+  const handleManualNextRound = async () => {
+    if (!game || !currentRound) {
+      return;
+    }
+
+    if (isFinalRound) {
+      navigate('/results');
+      return;
+    }
+
+    console.log('🔄 Next round button clicked, checking for next round...');
+
+    if (!isPhaseCaptain) {
+      console.log('👥 Participant clicked next round button - awaiting phase captain');
+      return;
+    }
+
+    // Reset the ref to allow round creation to run again
+    roundCreationRef.current = null;
+
+    // Determine the correct next round number.
+    // Prefer the game's current_round (updated by Supabase) but fall back
+    // to currentRound.round_number + 1 if the realtime update hasn't arrived yet.
+    const inferredNextRound = (currentRound?.round_number ?? 0) + 1;
+    const nextRoundNumber = Math.min(
+      game.round_count,
+      Math.max(game.current_round, inferredNextRound)
+    );
+
+    if (nextRoundNumber > game.round_count) {
+      console.log('⚠️ Next round number exceeds total rounds, redirecting to results');
+      navigate('/results');
+      return;
+    }
+
+    console.log('👑 Phase captain manually creating next round:', nextRoundNumber);
+
+    try {
+      const { startRound } = useRoundStore.getState();
+      await startRound(game.id, nextRoundNumber, game.round_count);
+      console.log('✅ Next round created successfully');
+    } catch (err) {
+      console.error('❌ Failed to create next round:', err);
+    }
+  };
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 relative">
@@ -507,21 +552,36 @@ export const Game: React.FC = () => {
               {/* This would show detailed results */}
             </div>
 
-            <GradientButton
-              variant="pink"
-              onClick={() => {
-                // Only navigate to results on final round
-                // Otherwise, let automatic round advancement happen
-                if (currentRound.round_number === game.round_count) {
-                  navigate('/results');
-                }
-              }}
-              className="w-full"
-            >
-              {currentRound.round_number === game.round_count
-                ? 'النتائج النهائية'
-                : 'الجولة التالية'}
-            </GradientButton>
+            {isFinalRound ? (
+              isDisplayMode ? (
+                <div className="glass rounded-2xl p-4 sm:p-5 text-sm sm:text-base text-white/80">
+                  📺 وضع العرض - سيتم الانتقال إلى النتائج النهائية تلقائيًا فور تحديث اللعبة.
+                </div>
+              ) : (
+                <GradientButton
+                  variant="pink"
+                  onClick={() => navigate('/results')}
+                  className="w-full"
+                >
+                  النتائج النهائية
+                </GradientButton>
+              )
+            ) : shouldShowNextRoundButton ? (
+              <GradientButton
+                variant="pink"
+                onClick={handleManualNextRound}
+                className="w-full"
+              >
+                الجولة التالية
+              </GradientButton>
+            ) : (
+              <div className="glass rounded-2xl p-4 sm:p-5 text-sm sm:text-base text-white/80">
+                ⏳ في انتظار قائد اللعبة للانتقال للجولة التالية...
+                <p className="text-xs sm:text-sm text-white/60 mt-2">
+                  سيتم التقدم تلقائيًا إذا انتهى الوقت أو قام القائد بالضغط على الزر.
+                </p>
+              </div>
+            )}
           </div>
         )}
       </GlassCard>
