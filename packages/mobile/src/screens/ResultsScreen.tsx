@@ -1,11 +1,13 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { useNavigation } from '@react-navigation/native';
 import { useGameStore, GameService } from '@fakash/shared';
 
 // Player colors matching the design
 const PLAYER_COLORS = ['#8b5cf6', '#3b82f6', '#06b6d4', '#ec4899'];
 
 export const ResultsScreen: React.FC = () => {
+  const navigation = useNavigation();
   const { game, players, isPhaseCaptain, isHost } = useGameStore();
 
   if (!game) {
@@ -20,6 +22,20 @@ export const ResultsScreen: React.FC = () => {
   const isGameFinished = game.status === 'finished';
   const canAdvanceRound = (isPhaseCaptain || isHost) && !isGameFinished;
 
+  // Refresh scores when showing results
+  useEffect(() => {
+    const fetchScores = async () => {
+      if (!game) return;
+      try {
+        const updatedPlayers = await GameService.getGamePlayers(game.id);
+        useGameStore.setState({ players: updatedPlayers });
+      } catch (err) {
+        console.error('Failed to refresh scores on results screen:', err);
+      }
+    };
+    fetchScores();
+  }, [game?.id]);
+
   const handleNextQuestion = async () => {
     if (!game || !canAdvanceRound) return;
 
@@ -31,6 +47,21 @@ export const ResultsScreen: React.FC = () => {
     }
   };
 
+  const handleFinishGame = async () => {
+    if (game) {
+      try {
+        await GameService.endGame(game.id);
+      } catch (err) {
+        console.error('Failed to end game:', err);
+      }
+    }
+    navigation.navigate('Join' as never);
+  };
+
+  const handleCreateNew = () => {
+    navigation.navigate('Join' as never);
+  };
+
   return (
     <View style={styles.container}>
       <View style={styles.contentContainer}>
@@ -38,9 +69,6 @@ export const ResultsScreen: React.FC = () => {
         <View style={styles.leaderboardFrame}>
           {sortedPlayers.map((player, index) => {
             const color = PLAYER_COLORS[index % PLAYER_COLORS.length];
-            // Mock data for rounds won - in real app this would come from player stats
-            const roundsWon = [7, 9, 4, 8][index] || 0;
-
             return (
               <View key={player.id} style={styles.playerBar}>
                 <View style={[styles.playerBarContent, { backgroundColor: color }]}>
@@ -52,9 +80,6 @@ export const ResultsScreen: React.FC = () => {
                   {/* Player Name */}
                   <Text style={styles.playerName}>{player.user_name}</Text>
 
-                  {/* Rounds Won */}
-                  <Text style={styles.roundsWon}>{roundsWon}</Text>
-
                   {/* Score */}
                   <Text style={styles.score}>{player.score}</Text>
                 </View>
@@ -63,7 +88,7 @@ export const ResultsScreen: React.FC = () => {
           })}
         </View>
 
-        {/* Next Question Button - Only show for phase captain/host */}
+        {/* Next Question Button - Only show for phase captain/host when not finished */}
         {canAdvanceRound ? (
           <TouchableOpacity
             style={styles.nextButton}
@@ -77,8 +102,28 @@ export const ResultsScreen: React.FC = () => {
             <Text style={styles.waitingText}>
               {isGameFinished
                 ? 'انتهت اللعبة!'
-                : 'في انتظار المضيف للسؤال التالي...'}
+                : 'في انتظار المضي للسؤال التالي...'}
             </Text>
+          </View>
+        )}
+
+        {/* Final actions when game is finished */}
+        {isGameFinished && (
+          <View style={styles.finalActions}>
+            <TouchableOpacity
+              style={[styles.nextButton, styles.secondaryButton]}
+              onPress={handleCreateNew}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.nextButtonText}>إنشاء لعبة جديدة</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={[styles.nextButton, styles.secondaryButton]}
+              onPress={handleFinishGame}
+              activeOpacity={0.8}
+            >
+              <Text style={styles.nextButtonText}>إنهاء اللعبة والعودة</Text>
+            </TouchableOpacity>
           </View>
         )}
       </View>
@@ -138,14 +183,6 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     textAlign: 'right',
   },
-  roundsWon: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    marginRight: 48,
-    minWidth: 40,
-    textAlign: 'center',
-  },
   score: {
     fontSize: 28,
     fontWeight: 'bold',
@@ -179,6 +216,13 @@ const styles = StyleSheet.create({
     fontSize: 18,
     color: '#9ca3af',
     textAlign: 'center',
+  },
+  finalActions: {
+    marginTop: 24,
+    gap: 12,
+  },
+  secondaryButton: {
+    backgroundColor: '#4b5563',
   },
   error: {
     color: '#ef4444',

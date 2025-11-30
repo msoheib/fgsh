@@ -153,6 +153,22 @@ export const GameScreen: React.FC = () => {
     }
   }, [currentRound?.id]);
 
+  // Fetch fresh answers when entering voting to avoid stale options
+  useEffect(() => {
+    const fetchAnswers = async () => {
+      if (!currentRound || roundStatus !== 'voting') return;
+      try {
+        const { RoundService } = await import('@fakash/shared');
+        const answers = await RoundService.getRoundAnswers(currentRound.id);
+        useRoundStore.setState({ allAnswers: answers });
+      } catch (err) {
+        console.error('Failed to load answers for voting phase:', err);
+      }
+    };
+
+    fetchAnswers();
+  }, [currentRound?.id, roundStatus]);
+
   // Debug logging
   useEffect(() => {
     console.log('🎮 GameScreen - State:', {
@@ -287,10 +303,14 @@ export const GameScreen: React.FC = () => {
     }
 
     try {
+      // Optimistically block repeat taps
+      useRoundStore.setState({ hasSubmittedVote: true });
       setSelectedAnswerId(answerId);
       await submitVote(currentPlayer.id, answerId);
     } catch (err) {
       console.error('Failed to submit vote:', err);
+      // Allow retry on error
+      useRoundStore.setState({ hasSubmittedVote: false });
     }
   };
 

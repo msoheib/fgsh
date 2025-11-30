@@ -505,24 +505,17 @@ export const Game: React.FC = () => {
               </div>
             </div>
 
-            {/* Next round button - HOST ONLY */}
-            {isFinalRound ? (
-              isPhaseCaptain ? (
-                <GradientButton variant="pink" onClick={() => navigate('/results')} className="w-full">
-                  🏁 النتائج النهائية
-                </GradientButton>
-              ) : (
-                <div className="glass rounded-2xl p-4 text-white/80">
-                  ⏳ في انتظار قائد اللعبة لإنهاء اللعبة...
-                </div>
-              )
-            ) : isPhaseCaptain ? (
+            {/* Next round / End game button - HOST ONLY */}
+            {isPhaseCaptain ? (
               <GradientButton variant="pink" onClick={handleNextRound} className="w-full">
-                ➡️ الجولة التالية
+                {isFinalRound ? '🏁 إنهاء اللعبة وعرض النتائج' : '➡️ الجولة التالية'}
               </GradientButton>
             ) : (
               <div className="glass rounded-2xl p-4 text-white/80">
-                ⏳ في انتظار قائد اللعبة للانتقال للجولة التالية...
+                {isFinalRound 
+                  ? '⏳ في انتظار قائد اللعبة لإنهاء اللعبة...'
+                  : '⏳ في انتظار قائد اللعبة للانتقال للجولة التالية...'
+                }
               </div>
             )}
           </div>
