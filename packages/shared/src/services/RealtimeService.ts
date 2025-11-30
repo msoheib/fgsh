@@ -74,8 +74,6 @@ export class RealtimeService {
   private static readonly MAX_RETRY_ATTEMPTS = 10;
   private static readonly BASE_RETRY_DELAY = 1000; // 1 second
   private static readonly MAX_RETRY_DELAY = 15000; // Cap backoff at 15 seconds
-  private static readonly WATCHDOG_INTERVAL = 5000; // Check every 5 seconds (reduced from 10)
-  private static readonly SILENT_DROP_THRESHOLD = 20000; // If no events for 20s, consider connection dropped
   private static readonly HEARTBEAT_INTERVAL = 3000; // Send heartbeat every 3 seconds
 
   /**
