@@ -76,7 +76,7 @@ export class PaymentService {
     // Create payment record
     const { data, error } = await supabase.rpc('create_payment_record', {
       p_moyasar_payment_id: moyasarPaymentId,
-      p_plan_id: planId,
+      p_plan_id: plan.id, // Use lowercase plan ID from config (e.g., 'basic', 'premium', 'lifetime')
       p_amount: plan.priceHalalas,
       p_description: `Subscription: ${plan.nameAr}`,
     });

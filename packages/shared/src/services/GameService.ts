@@ -205,15 +205,40 @@ export class GameService {
       throw new GameError(ErrorType.GAME_FULL);
     }
 
-    // Check for duplicate name
+    // Check for existing player with same name (allow reconnect if disconnected)
     const { data: existingPlayer } = await supabase
       .from('players')
-      .select('id')
+      .select('*')
       .eq('game_id', game.id)
       .eq('user_name', sanitizedName)
-      .single();
+      .maybeSingle();
 
     if (existingPlayer) {
+      // Let a dropped player reclaim their spot
+      if (existingPlayer.connection_status === 'disconnected') {
+        console.log('🔄 Reconnecting disconnected player:', existingPlayer.user_name);
+        const { data: reconnectedPlayer, error: reconnectError } = await supabase
+          .from('players')
+          .update({ connection_status: 'connected' })
+          .eq('id', existingPlayer.id)
+          .select()
+          .single();
+
+        if (reconnectError || !reconnectedPlayer) {
+          throw new GameError(ErrorType.CONNECTION_LOST, reconnectError?.message);
+        }
+
+        // Check if this player should be phase captain (if game has no captain)
+        if (!game.phase_captain_id) {
+          await supabase
+            .from('games')
+            .update({ phase_captain_id: reconnectedPlayer.id })
+            .eq('id', game.id);
+        }
+
+        return { game, player: reconnectedPlayer };
+      }
+      // Player exists and is connected - duplicate name error
       throw new GameError(ErrorType.DUPLICATE_NAME);
     }
 

@@ -11,7 +11,7 @@ export interface HostProfile {
   subscription_tier: 'free' | 'basic' | 'premium';
   subscription_expires_at: string | null;
   games_created_count: number;
-  total_revenue: number;
+  total_players_hosted: number;
   created_at: string;
   updated_at: string;
 }

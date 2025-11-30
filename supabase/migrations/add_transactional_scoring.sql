@@ -137,15 +137,14 @@ RETURNS VOID AS $$
 DECLARE
   v_round RECORD;
   v_game RECORD;
-  v_connected_players INTEGER;
   v_answer_count INTEGER;
   v_vote_count INTEGER;
   v_next_round_number INTEGER;
 BEGIN
   -- Lock the round row to prevent concurrent updates (race condition protection)
-  SELECT * INTO v_round
-  FROM game_rounds
-  WHERE id = p_round_id
+  SELECT gr.* INTO v_round
+  FROM game_rounds gr
+  WHERE gr.id = p_round_id
   FOR UPDATE;
 
   -- Exit if round not found or already completed
@@ -154,22 +153,14 @@ BEGIN
   END IF;
 
   -- Get game info and lock it too
-  SELECT * INTO v_game
-  FROM games
-  WHERE id = v_round.game_id
+  SELECT g.* INTO v_game
+  FROM games g
+  WHERE g.id = v_round.game_id
   FOR UPDATE;
 
-  -- Count active players (connected AND recent heartbeat within 30 seconds)
-  -- This prevents "ghost players" (crashed browsers) from stalling the game
-  SELECT COUNT(*) INTO v_connected_players
-  FROM players
-  WHERE game_id = v_round.game_id
-    AND connection_status = 'connected'
-    AND (last_heartbeat IS NULL OR last_heartbeat > NOW() - INTERVAL '30 seconds');
-
-  -- Safety check: need at least 2 players
-  IF v_connected_players < 2 THEN
-    RAISE NOTICE 'Not enough active players (%), skipping phase transition', v_connected_players;
+  -- Safety check: need at least 2 players (using fixed quorum from round)
+  IF v_round.required_players < 2 THEN
+    RAISE NOTICE 'Not enough required players (%), skipping phase transition', v_round.required_players;
     RETURN;
   END IF;
 
@@ -183,30 +174,30 @@ BEGIN
     WHERE round_id = p_round_id
       AND is_correct = false;
 
-    RAISE NOTICE 'Round % answering phase: % answers / % connected players',
-      v_round.round_number, v_answer_count, v_connected_players;
+    RAISE NOTICE 'Round % answering phase: % answers / % required players',
+      v_round.round_number, v_answer_count, v_round.required_players;
 
-    -- All connected players have answered
-    IF v_answer_count >= v_connected_players THEN
+    -- All required players have answered
+    IF v_answer_count >= v_round.required_players THEN
       RAISE NOTICE '✅ All players answered! Adding correct answer and transitioning to voting...';
 
-      -- Insert the correct answer into the voting pool
+      -- Insert the correct answer into the voting pool (fully qualified to avoid ambiguity)
       -- This ensures players can vote for the truth alongside the lies
       INSERT INTO player_answers (round_id, player_id, answer_text, is_correct)
       SELECT
-        p_round_id,
-        NULL,  -- System answer (no player)
-        q.correct_answer,
-        true
+        p_round_id AS round_id,
+        NULL::UUID AS player_id,  -- System answer (no player)
+        q.correct_answer AS answer_text,
+        true AS is_correct
       FROM questions q
-      WHERE q.id = v_round.question_id;
+      WHERE q.id = v_round.question_id
+      ON CONFLICT DO NOTHING;  -- Prevent duplicate correct answer
 
       -- Update round status to voting
-      -- The trigger set_timer_on_voting will automatically reset timer_starts_at
-      UPDATE game_rounds
+      UPDATE game_rounds gr
       SET status = 'voting',
           timer_duration = 20  -- 20 seconds for voting
-      WHERE id = p_round_id;
+      WHERE gr.id = p_round_id;
 
       RAISE NOTICE '🗳️ Round % transitioned to VOTING with correct answer added', v_round.round_number;
       RETURN;
@@ -222,20 +213,20 @@ BEGIN
     FROM votes
     WHERE round_id = p_round_id;
 
-    RAISE NOTICE 'Round % voting phase: % votes / % connected players',
-      v_round.round_number, v_vote_count, v_connected_players;
+    RAISE NOTICE 'Round % voting phase: % votes / % required players',
+      v_round.round_number, v_vote_count, v_round.required_players;
 
-    -- All connected players have voted
-    IF v_vote_count >= v_connected_players THEN
+    -- All required players have voted
+    IF v_vote_count >= v_round.required_players THEN
       RAISE NOTICE '✅ All players voted! Calculating scores and ending round...';
 
       -- Calculate and update scores atomically
       PERFORM calculate_and_update_scores(p_round_id, v_game.id);
 
       -- Mark round as completed
-      UPDATE game_rounds
+      UPDATE game_rounds gr
       SET status = 'completed'
-      WHERE id = p_round_id;
+      WHERE gr.id = p_round_id;
 
       -- Calculate next round number
       v_next_round_number := v_game.current_round + 1;
@@ -245,16 +236,16 @@ BEGIN
         RAISE NOTICE '🎉 Game finished! Final round completed.';
 
         -- Mark game as finished
-        UPDATE games
+        UPDATE games g
         SET status = 'finished'
-        WHERE id = v_game.id;
+        WHERE g.id = v_game.id;
       ELSE
         RAISE NOTICE '➡️ Advancing to round %', v_next_round_number;
 
         -- Increment to next round
-        UPDATE games
+        UPDATE games g
         SET current_round = v_next_round_number
-        WHERE id = v_game.id;
+        WHERE g.id = v_game.id;
       END IF;
 
       RAISE NOTICE '🏁 Round % completed with scores calculated', v_round.round_number;

@@ -1,27 +1,51 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
 import { PlayerAvatar } from '../components/PlayerAvatar';
-import { LeaveGameButton } from '../components/LeaveGameButton';
-import { useGameStore, ScoringService } from '@fakash/shared';
+import { useGameStore, ScoringService, GameService, clearGameSession } from '@fakash/shared';
 
 export const Results: React.FC = () => {
   const navigate = useNavigate();
-  const { game, leaveGame } = useGameStore();
+  const { game, isHost, leaveGame } = useGameStore();
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
+  const [isEnding, setIsEnding] = useState(false);
+  
+  // Store game ID in ref so we can still fetch leaderboard even if game state changes
+  const gameIdRef = useRef<string | null>(null);
+  const hasLoadedRef = useRef(false);
+
+  // Capture game ID on mount
+  useEffect(() => {
+    if (game?.id && !gameIdRef.current) {
+      gameIdRef.current = game.id;
+    }
+  }, [game?.id]);
 
   useEffect(() => {
-    if (!game) {
-      navigate('/');
+    // Use stored game ID if game becomes null during results display
+    const gameId = game?.id || gameIdRef.current;
+    
+    if (!gameId) {
+      // Only redirect if we never had a game
+      if (!hasLoadedRef.current) {
+        navigate('/');
+      }
+      return;
+    }
+
+    // If game is not finished yet, go back to game page
+    if (game && game.status !== 'finished') {
+      navigate('/game');
       return;
     }
 
     // Fetch final leaderboard
     const fetchLeaderboard = async () => {
       try {
-        const data = await ScoringService.getFinalLeaderboard(game.id);
+        hasLoadedRef.current = true;
+        const data = await ScoringService.getFinalLeaderboard(gameId);
         setLeaderboard(data);
       } catch (err) {
         console.error('Failed to fetch leaderboard:', err);
@@ -31,8 +55,48 @@ export const Results: React.FC = () => {
     fetchLeaderboard();
   }, [game, navigate]);
 
-  if (!game) {
-    return null;
+  // Handle creating a new game
+  const handleCreateNewGame = async () => {
+    // Clean up current session
+    await leaveGame();
+    clearGameSession();
+    // Navigate to create page
+    navigate('/create');
+  };
+
+  // Handle ending game and returning home (host only)
+  const handleEndAndGoHome = async () => {
+    setIsEnding(true);
+    try {
+      const gameId = game?.id || gameIdRef.current;
+      if (gameId) {
+        await GameService.endGame(gameId);
+      }
+    } catch (err) {
+      console.error('Failed to end game:', err);
+    }
+    await leaveGame();
+    clearGameSession();
+    navigate('/');
+  };
+
+  // Handle returning home (for non-host players)
+  const handleGoHome = async () => {
+    await leaveGame();
+    clearGameSession();
+    navigate('/');
+  };
+
+  // Show loading state if leaderboard hasn't loaded yet
+  if (leaderboard.length === 0 && !hasLoadedRef.current) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <div className="text-center">
+          <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
+          <p className="text-white text-lg">جارٍ تحميل النتائج...</p>
+        </div>
+      </div>
+    );
   }
 
   const winner = leaderboard[0];
@@ -68,7 +132,7 @@ export const Results: React.FC = () => {
       )}
 
       <GlassCard className="max-w-2xl w-full">
-        <h2 className="text-xl sm:text-2xl font-bold text-center mb-4 sm:mb-6">لوحة المتصدرين</h2>
+        <h2 className="text-xl sm:text-2xl font-bold text-center mb-4 sm:mb-6">🏆 لوحة المتصدرين</h2>
 
         <div className="space-y-2 sm:space-y-3">
           {leaderboard.map(({ player, rank }) => (
@@ -100,24 +164,44 @@ export const Results: React.FC = () => {
           ))}
         </div>
 
-        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-6 sm:mt-8">
-          <LeaveGameButton
-            variant="secondary"
-            size="lg"
-            className="flex-1"
-          />
-
-          <GradientButton
-            variant="pink"
-            onClick={() => {
-              // Clean up current session before starting new game
-              leaveGame();
-              navigate('/create');
-            }}
-            className="flex-1"
-          >
-            لعب مرة أخرى
-          </GradientButton>
+        {/* Action buttons - different for host vs players */}
+        <div className="mt-6 sm:mt-8">
+          {isHost ? (
+            // Host controls
+            <div className="flex flex-col gap-3">
+              <GradientButton
+                variant="pink"
+                onClick={handleCreateNewGame}
+                className="w-full"
+              >
+                🎮 إنشاء لعبة جديدة
+              </GradientButton>
+              
+              <GradientButton
+                variant="cyan"
+                onClick={handleEndAndGoHome}
+                disabled={isEnding}
+                className="w-full"
+              >
+                {isEnding ? '⏳ جاري الإنهاء...' : '🏠 إنهاء اللعبة والعودة للرئيسية'}
+              </GradientButton>
+            </div>
+          ) : (
+            // Player controls
+            <div className="flex flex-col gap-3">
+              <GradientButton
+                variant="pink"
+                onClick={handleGoHome}
+                className="w-full"
+              >
+                🏠 العودة للرئيسية
+              </GradientButton>
+              
+              <p className="text-center text-sm text-white/60">
+                شكراً لك على اللعب! 🎉
+              </p>
+            </div>
+          )}
         </div>
       </GlassCard>
     </div>

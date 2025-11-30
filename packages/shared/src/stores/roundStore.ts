@@ -99,6 +99,11 @@ export const useRoundStore = create<RoundState>((set, get) => ({
         playerAnswers: new Map(),
         myAnswer: null,
         hasSubmittedAnswer: false,
+        // Clear voting state for the new round
+        allAnswers: [],
+        playerVotes: new Map(),
+        myVote: null,
+        hasSubmittedVote: false,
       });
     } catch (error) {
       set({ isLoading: false });

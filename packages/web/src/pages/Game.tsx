@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
@@ -22,26 +22,26 @@ export const Game: React.FC = () => {
     timeRemaining,
     setTimeRemaining,
     timerActive,
+    setTimerActive,
   } = useRoundStore();
 
   const [answerInput, setAnswerInput] = useState('');
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
-  const roundCreationRef = React.useRef<number | null>(null);
+  const roundCreationRef = useRef<number | null>(null);
+  const isCreatingRoundRef = useRef<boolean>(false);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // Recovery function - fetches current round state from server
-  const recoverRoundState = React.useCallback(async () => {
-    // Display mode doesn't have a player, so skip recovery for display mode
+  const recoverRoundState = useCallback(async () => {
     if (!game || (!currentPlayer && !isDisplayMode)) return;
-    if (isDisplayMode) return; // Display mode can't recover player-specific state
+    if (isDisplayMode) return;
 
     console.log('🔄 Attempting to recover round state from server...');
     setIsRecovering(true);
 
     try {
       const { RoundService, getSupabase } = await import('@fakash/shared');
-
-      // Fetch current round from server
       const round = await RoundService.getCurrentRound(game.id);
 
       if (!round) {
@@ -50,9 +50,6 @@ export const Game: React.FC = () => {
         return;
       }
 
-      console.log('✅ Found round on server:', round);
-
-      // Fetch question
       const supabase = getSupabase();
       const { data: q } = await supabase
         .from('questions')
@@ -61,24 +58,20 @@ export const Game: React.FC = () => {
         .single();
 
       if (!q) {
-        console.log('⚠️ Failed to fetch question');
         setIsRecovering(false);
         return;
       }
 
-      // Fetch answers if in voting phase
       const answers = round.status === 'voting'
         ? await RoundService.getRoundAnswers(round.id)
         : [];
 
-      // Calculate time remaining from server timestamp
       const startTime = round.timer_starts_at
         ? new Date(round.timer_starts_at).getTime()
         : Date.now();
       const elapsed = Math.floor((Date.now() - startTime) / 1000);
       const remaining = Math.max(0, round.timer_duration - elapsed);
 
-      // Check if player has already submitted answer (only for players, not display mode)
       const { data: playerAnswer } = currentPlayer ? await supabase
         .from('player_answers')
         .select('*')
@@ -86,7 +79,6 @@ export const Game: React.FC = () => {
         .eq('player_id', currentPlayer.id)
         .maybeSingle() : { data: null };
 
-      // Check if player has already voted (only for players, not display mode)
       const { data: playerVote } = currentPlayer ? await supabase
         .from('votes')
         .select('*')
@@ -94,7 +86,6 @@ export const Game: React.FC = () => {
         .eq('voter_id', currentPlayer.id)
         .maybeSingle() : { data: null };
 
-      // Restore round store state
       useRoundStore.setState({
         currentRound: round,
         question: q,
@@ -112,216 +103,158 @@ export const Game: React.FC = () => {
         isLoading: false,
       });
 
-      console.log('✅ Recovery complete! Round state restored from server');
+      console.log('✅ Recovery complete!');
       setIsRecovering(false);
     } catch (err) {
       console.error('❌ Recovery failed:', err);
       setIsRecovering(false);
     }
-  }, [game, currentPlayer]);
+  }, [game, currentPlayer, isDisplayMode]);
 
-  // Guard: only redirect if rehydration has been attempted and still no game/player
+  // Navigation guard - redirect if no game/player
   useEffect(() => {
-    // Wait for rehydration to complete before making navigation decisions
-    if (!rehydrationAttempted) {
-      return;
-    }
+    if (!rehydrationAttempted) return;
 
-    // If rehydration completed but no game found, redirect to home
-    // For display mode, we don't need a currentPlayer
     if (!game || (!currentPlayer && !isDisplayMode)) {
       navigate('/');
       return;
     }
 
-    // Subscribe to round creation for participants
-    if (!isPhaseCaptain && !currentRound && game.status === 'playing') {
-      console.log('👥 Participant waiting for round to be created...');
+    if (game.status === 'finished') {
+      navigate('/results');
+      return;
     }
+  }, [game, currentPlayer, isDisplayMode, navigate, rehydrationAttempted]);
 
-    // Auto-start the first round if not already started (PHASE CAPTAIN ONLY)
-    const initializeRound = async () => {
-      const needsNewRound = !currentRound || currentRound.round_number < game.current_round;
+  // Phase captain: create round when needed
+  useEffect(() => {
+    if (!game || !rehydrationAttempted) return;
+    if (game.status !== 'playing') return;
+    if (!isPhaseCaptain) return;
 
-      console.log('🔍 Phase captain checking round creation:', {
-        currentRoundId: currentRound?.id,
-        currentRoundNumber: currentRound?.round_number,
-        gameCurrentRound: game.current_round,
-        needsNewRound,
-        roundCreationRef: roundCreationRef.current,
-        isPhaseCaptain,
-        gameStatus: game.status
-      });
+    const needsNewRound = !currentRound || currentRound.round_number < game.current_round;
 
-      // Create round if: no current round OR current round is behind game's current_round
-      // This handles both initial round and subsequent rounds (even during 3s delay)
-      if (
-        needsNewRound &&
-        roundCreationRef.current !== game.current_round &&
-        isPhaseCaptain &&
-        game.status === 'playing' &&
-        game.current_round > 0
-      ) {
-        roundCreationRef.current = game.current_round; // Track which round we're creating
+    if (
+      needsNewRound &&
+      roundCreationRef.current !== game.current_round &&
+      game.current_round > 0 &&
+      !isCreatingRoundRef.current
+    ) {
+      isCreatingRoundRef.current = true;
+      roundCreationRef.current = game.current_round;
+
+      (async () => {
         try {
           console.log('🎮 Phase captain creating round', game.current_round);
           const { startRound } = useRoundStore.getState();
           await startRound(game.id, game.current_round, game.round_count);
-          console.log('✅ Phase captain successfully created round', game.current_round);
+          console.log('✅ Round created successfully');
         } catch (err: any) {
-          console.error('❌ Failed to initialize round:', err);
-          roundCreationRef.current = null; // Reset on error so we can retry
-          if (err.message?.includes('No questions available')) {
-            alert('لا توجد أسئلة في قاعدة البيانات. يرجى تشغيل seed.sql في Supabase');
-            navigate('/');
+          console.error('❌ Failed to create round:', err);
+          if (!err.message?.includes('duplicate key')) {
+            roundCreationRef.current = null;
           }
-          // Note: duplicate key errors are now handled gracefully by RoundService.createRound
+        } finally {
+          isCreatingRoundRef.current = false;
         }
-      }
-    };
+      })();
+    }
+  }, [game, currentRound, isPhaseCaptain, rehydrationAttempted]);
 
-    initializeRound();
-  }, [game, currentPlayer, currentRound, isPhaseCaptain, navigate, rehydrationAttempted]);
-
-  // Handle timer expiration - call server-side force_advance_round
-  // Phase transitions now happen automatically via database triggers!
-  // Timer expiration handler - any connected player can call this
-  // The RPC function is idempotent, so multiple calls are safe
+  // Simple local timer countdown - NO server sync spam
   useEffect(() => {
-    if (!currentRound || timeRemaining !== 0) {
+    // Clear any existing interval
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
+    if (!currentRound || !timerActive || timeRemaining <= 0) {
       return;
     }
 
-    const handleTimerExpired = async () => {
-      console.log('⏰ Timer expired! Calling server-side force_advance_round...');
-      try {
-        const { getSupabase } = await import('@fakash/shared');
-        const supabase = getSupabase();
-
-        const { error } = await supabase.rpc('force_advance_round', {
-          p_round_id: currentRound.id
-        });
-
-        if (error) {
-          console.error('❌ Failed to force advance round:', error);
-        } else {
-          console.log('✅ Server processing timer expiration');
+    // Simple countdown every second
+    timerIntervalRef.current = setInterval(() => {
+      const newTime = useRoundStore.getState().timeRemaining - 1;
+      if (newTime <= 0) {
+        setTimeRemaining(0);
+        setTimerActive(false);
+        if (timerIntervalRef.current) {
+          clearInterval(timerIntervalRef.current);
+          timerIntervalRef.current = null;
         }
-      } catch (err) {
-        console.error('❌ Error calling force_advance_round:', err);
+      } else {
+        setTimeRemaining(newTime);
+      }
+    }, 1000);
+
+    return () => {
+      if (timerIntervalRef.current) {
+        clearInterval(timerIntervalRef.current);
+        timerIntervalRef.current = null;
       }
     };
+  }, [currentRound?.id, timerActive, setTimeRemaining, setTimerActive]);
 
-    // Small delay to prevent multiple rapid calls from single client
-    // Multiple clients calling simultaneously is OK due to RPC idempotency
-    const timer = setTimeout(handleTimerExpired, 500);
-    return () => clearTimeout(timer);
-  }, [currentRound, timeRemaining]);
-
-  // Server-synchronized timer (recalculates from server timestamp every second)
+  // Recovery mechanism if stuck loading
   useEffect(() => {
-    if (!timerActive || !currentRound?.timer_starts_at) {
-      return;
-    }
-
-    const updateTimer = () => {
-      const startTime = new Date(currentRound.timer_starts_at!).getTime();
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const remaining = Math.max(0, currentRound.timer_duration - elapsed);
-
-      if (remaining !== timeRemaining) {
-        setTimeRemaining(remaining);
-      }
-    };
-
-    // Update immediately
-    updateTimer();
-
-    // Update every second
-    const interval = setInterval(updateTimer, 1000);
-
-    return () => clearInterval(interval);
-  }, [currentRound?.timer_starts_at, currentRound?.timer_duration, timerActive, setTimeRemaining, timeRemaining]);
-
-  // Recovery mechanism: self-heal if stuck in loading state
-  // If game exists but round/question missing, fetch from server
-  useEffect(() => {
-    // Allow recovery for both players and display mode
     if (!game || (!currentPlayer && !isDisplayMode)) return;
-    if (currentRound && question) return; // Already loaded
-    if (game.status !== 'playing') return; // Only recover during active games
-    if (isRecovering) return; // Already recovering
+    if (currentRound && question) return;
+    if (game.status !== 'playing') return;
+    if (isRecovering) return;
+    if (isDisplayMode) return;
 
-    // Delay recovery by 2s to avoid race with normal Realtime updates
-    // Longer delay gives phase captain time to create the round
     const timer = setTimeout(() => {
-      console.log('🔄 Stuck loading detected, attempting automatic recovery...', {
-        hasGame: !!game,
-        hasPlayer: !!currentPlayer,
-        isDisplayMode,
-        hasRound: !!currentRound,
-        hasQuestion: !!question,
-        gameStatus: game.status
-      });
-
-      // Only players can recover, display mode just waits
-      if (!isDisplayMode) {
-        recoverRoundState();
-      }
-    }, 2000); // Increased from 1500ms to 2000ms
+      console.log('🔄 Stuck loading, attempting recovery...');
+      recoverRoundState();
+    }, 3000);
 
     return () => clearTimeout(timer);
   }, [game, currentPlayer, isDisplayMode, currentRound, question, isRecovering, recoverRoundState]);
 
-  // Loading guard - allow display mode without currentPlayer
+  // Refresh player scores when a round completes so results show latest totals
+  useEffect(() => {
+    const syncScores = async () => {
+      if (!game || roundStatus !== 'completed') return;
+      try {
+        const { GameService } = await import('@fakash/shared');
+        const updatedPlayers = await GameService.getGamePlayers(game.id);
+        useGameStore.setState({ players: updatedPlayers });
+      } catch (err) {
+        console.error('Failed to refresh scores after round completion:', err);
+      }
+    };
+
+    syncScores();
+  }, [game, roundStatus]);
+
+  // Loading screen
   if (!game || (!currentPlayer && !isDisplayMode) || !currentRound || !question) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <GlassCard className="text-center max-w-md">
-          <p className="text-lg mb-4">
-            {isDisplayMode ? '📺 جاري تحميل الجولة...' : 'جاري التحميل...'}
-          </p>
+          <p className="text-lg mb-4">جاري التحميل...</p>
 
           {game && game.status === 'playing' && !currentRound && (
-            <p className="text-sm text-white/60 mb-4">
-              {isDisplayMode
-                ? 'في انتظار قائد اللعبة لبدء الجولة...'
-                : 'في انتظار إنشاء الجولة...'
-              }
-            </p>
+            <p className="text-sm text-white/60 mb-4">في انتظار إنشاء الجولة...</p>
           )}
 
           {game && currentPlayer && !isRecovering && (
-            <GradientButton
-              variant="cyan"
-              onClick={recoverRoundState}
-              className="mt-4"
-            >
+            <GradientButton variant="cyan" onClick={recoverRoundState} className="mt-4">
               🔄 إعادة المحاولة
             </GradientButton>
           )}
 
           {isRecovering && (
-            <p className="text-sm text-white/60 mt-2">جاري استعادة الحالة من الخادم...</p>
-          )}
-
-          {isDisplayMode && !isRecovering && (
-            <p className="text-sm text-white/60 mt-2">
-              📺 وضع العرض - في انتظار تحديثات اللعبة...
-            </p>
+            <p className="text-sm text-white/60 mt-2">جاري استعادة الحالة...</p>
           )}
 
           {game && game.status === 'waiting' && (
-            <GradientButton
-              variant="purple"
-              onClick={() => navigate('/lobby')}
-              className="mt-4"
-            >
+            <GradientButton variant="purple" onClick={() => navigate('/lobby')} className="mt-4">
               العودة للردهة
             </GradientButton>
           )}
 
-          {/* Leave button - visible for both display mode and players */}
           <div className="mt-4">
             <LeaveGameButton variant="secondary" size="md" />
           </div>
@@ -332,7 +265,6 @@ export const Game: React.FC = () => {
 
   const handleSubmitAnswer = async () => {
     if (!answerInput.trim() || !currentPlayer) return;
-
     try {
       await submitAnswer(currentPlayer.id, answerInput);
       setAnswerInput('');
@@ -344,70 +276,83 @@ export const Game: React.FC = () => {
   const handleSubmitVote = async (answerId: string) => {
     if (!currentPlayer) return;
 
+    // Prevent duplicate vote submission
+    if (hasSubmittedVote) {
+      console.log('Vote already submitted, ignoring duplicate click');
+      return;
+    }
+
+    // Set hasSubmittedVote immediately to prevent double-clicks
+    useRoundStore.setState({ hasSubmittedVote: true });
+
     try {
       await submitVote(currentPlayer.id, answerId);
       setSelectedAnswer(answerId);
     } catch (err) {
       console.error('Failed to submit vote:', err);
+      // Revert hasSubmittedVote only on error
+      useRoundStore.setState({ hasSubmittedVote: false });
     }
   };
 
-  // Question phase - showing submitted answers count
   const submittedCount = players.filter((p) =>
     allAnswers.some((a) => a.player_id === p.id)
   ).length;
-  const isFinalRound = currentRound.round_number === game.round_count;
-  const shouldShowNextRoundButton = !isFinalRound && isPhaseCaptain && !isDisplayMode;
 
-  const handleManualNextRound = async () => {
-    if (!game || !currentRound) {
-      return;
-    }
+  const isFinalRound = currentRound.round_number === game.round_count;
+
+  // Host clicks this to go to next round
+  const handleNextRound = async () => {
+    if (!game || !currentRound || !isPhaseCaptain) return;
 
     if (isFinalRound) {
+      // Final round: mark game finished and navigate to results
+      try {
+        const { GameService } = await import('@fakash/shared');
+        await GameService.endGame(game.id);
+      } catch (err) {
+        console.error('Failed to end game:', err);
+      }
       navigate('/results');
       return;
     }
 
-    console.log('🔄 Next round button clicked, checking for next round...');
-
-    if (!isPhaseCaptain) {
-      console.log('👥 Participant clicked next round button - awaiting phase captain');
-      return;
-    }
-
-    // Reset the ref to allow round creation to run again
-    roundCreationRef.current = null;
-
-    // Determine the correct next round number.
-    // Prefer the game's current_round (updated by Supabase) but fall back
-    // to currentRound.round_number + 1 if the realtime update hasn't arrived yet.
-    const inferredNextRound = (currentRound?.round_number ?? 0) + 1;
-    const nextRoundNumber = Math.min(
-      game.round_count,
-      Math.max(game.current_round, inferredNextRound)
-    );
+    const nextRoundNumber = currentRound.round_number + 1;
 
     if (nextRoundNumber > game.round_count) {
-      console.log('⚠️ Next round number exceeds total rounds, redirecting to results');
       navigate('/results');
       return;
     }
 
-    console.log('👑 Phase captain manually creating next round:', nextRoundNumber);
+    console.log('👑 Host advancing to round:', nextRoundNumber);
+    roundCreationRef.current = null;
 
     try {
+      // Update game's current_round in database
+      const { getSupabase } = await import('@fakash/shared');
+      const supabase = getSupabase();
+      
+      await supabase
+        .from('games')
+        .update({ current_round: nextRoundNumber })
+        .eq('id', game.id);
+
+      // Create the new round
       const { startRound } = useRoundStore.getState();
       await startRound(game.id, nextRoundNumber, game.round_count);
-      console.log('✅ Next round created successfully');
+      console.log('✅ Next round started');
     } catch (err) {
-      console.error('❌ Failed to create next round:', err);
+      console.error('❌ Failed to start next round:', err);
     }
   };
 
+  // Get player scores for display
+  const playerScores = players
+    .map(p => ({ name: p.user_name, score: p.score || 0 }))
+    .sort((a, b) => b.score - a.score);
+
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6 relative">
-      {/* Leave button in top-right corner */}
       <div className="absolute top-4 right-4 z-10">
         <LeaveGameButton variant="secondary" size="sm" />
       </div>
@@ -446,7 +391,6 @@ export const Game: React.FC = () => {
         {roundStatus === 'answering' && (
           <div>
             {isDisplayMode ? (
-              // Display mode - show waiting status only
               <div className="text-center p-4 sm:p-8">
                 <p className="text-lg sm:text-xl mb-3 sm:mb-4">📺 وضع العرض</p>
                 <p className="text-sm sm:text-base text-white/60">
@@ -470,7 +414,6 @@ export const Game: React.FC = () => {
                     autoFocus
                   />
                 </div>
-
                 <GradientButton
                   variant="pink"
                   onClick={handleSubmitAnswer}
@@ -497,7 +440,6 @@ export const Game: React.FC = () => {
             <h3 className="text-lg sm:text-xl font-bold text-center mb-4 sm:mb-6">
               {isDisplayMode ? 'الإجابات المقدمة' : 'صوت للإجابة الصحيحة'}
             </h3>
-
             <div className="space-y-2 sm:space-y-3 mb-4 sm:mb-6">
               {allAnswers.map((answer) => (
                 <button
@@ -507,13 +449,11 @@ export const Game: React.FC = () => {
                       handleSubmitVote(answer.id);
                     }
                   }}
-                  disabled={
-                    !!isDisplayMode || !!hasSubmittedVote || !!(currentPlayer && answer.player_id != null && answer.player_id === currentPlayer.id)
-                  }
+                  disabled={!!isDisplayMode || !!hasSubmittedVote || !!(currentPlayer && answer.player_id === currentPlayer.id)}
                   className={`w-full p-3 sm:p-4 rounded-2xl font-bold text-base sm:text-lg transition-all ${
                     selectedAnswer === answer.id
                       ? 'bg-gradient-to-r from-secondary-main to-secondary-light shadow-glow-cyan'
-                      : currentPlayer && answer.player_id != null && answer.player_id === currentPlayer.id
+                      : currentPlayer && answer.player_id === currentPlayer.id
                       ? 'glass opacity-50 cursor-not-allowed'
                       : isDisplayMode
                       ? 'glass cursor-default'
@@ -521,11 +461,10 @@ export const Game: React.FC = () => {
                   }`}
                 >
                   {answer.answer_text}
-                  {currentPlayer && answer.player_id != null && answer.player_id === currentPlayer.id && ' (إجابتك)'}
+                  {currentPlayer && answer.player_id === currentPlayer.id && ' (إجابتك)'}
                 </button>
               ))}
             </div>
-
             {isDisplayMode ? (
               <p className="text-center text-sm sm:text-base text-white/60">
                 📺 في انتظار تصويت اللاعبين...
@@ -538,7 +477,7 @@ export const Game: React.FC = () => {
           </div>
         )}
 
-        {/* Results phase */}
+        {/* Results phase - shows correct answer + scores */}
         {roundStatus === 'completed' && (
           <div className="text-center">
             <div className="mb-4 sm:mb-6 p-4 sm:p-6 bg-gradient-to-br from-secondary-main to-secondary-light rounded-2xl sm:rounded-3xl">
@@ -546,40 +485,47 @@ export const Game: React.FC = () => {
               <p className="text-2xl sm:text-3xl font-bold">{question.correct_answer}</p>
             </div>
 
-            {/* Show who fooled whom */}
-            <div className="mb-4 sm:mb-6">
-              <h3 className="text-lg sm:text-xl font-bold mb-3 sm:mb-4">نتائج الجولة</h3>
-              {/* This would show detailed results */}
+            {/* Scores display */}
+            <div className="mb-6">
+              <h3 className="text-lg sm:text-xl font-bold mb-4">🏆 النتائج الحالية</h3>
+              <div className="space-y-2">
+                {playerScores.map((player, index) => (
+                  <div
+                    key={player.name}
+                    className={`flex justify-between items-center p-3 rounded-xl ${
+                      index === 0 ? 'bg-yellow-500/20 border border-yellow-500/50' : 'glass'
+                    }`}
+                  >
+                    <span className="flex items-center gap-2">
+                      {index === 0 && <span>🥇</span>}
+                      {index === 1 && <span>🥈</span>}
+                      {index === 2 && <span>🥉</span>}
+                      <span className="font-semibold">{player.name}</span>
+                    </span>
+                    <span className="text-lg font-bold">{player.score} نقطة</span>
+                  </div>
+                ))}
+              </div>
             </div>
 
+            {/* Next round button - HOST ONLY */}
             {isFinalRound ? (
-              isDisplayMode ? (
-                <div className="glass rounded-2xl p-4 sm:p-5 text-sm sm:text-base text-white/80">
-                  📺 وضع العرض - سيتم الانتقال إلى النتائج النهائية تلقائيًا فور تحديث اللعبة.
-                </div>
-              ) : (
-                <GradientButton
-                  variant="pink"
-                  onClick={() => navigate('/results')}
-                  className="w-full"
-                >
-                  النتائج النهائية
+              isPhaseCaptain ? (
+                <GradientButton variant="pink" onClick={() => navigate('/results')} className="w-full">
+                  🏁 النتائج النهائية
                 </GradientButton>
+              ) : (
+                <div className="glass rounded-2xl p-4 text-white/80">
+                  ⏳ في انتظار قائد اللعبة لإنهاء اللعبة...
+                </div>
               )
-            ) : shouldShowNextRoundButton ? (
-              <GradientButton
-                variant="pink"
-                onClick={handleManualNextRound}
-                className="w-full"
-              >
-                الجولة التالية
+            ) : isPhaseCaptain ? (
+              <GradientButton variant="pink" onClick={handleNextRound} className="w-full">
+                ➡️ الجولة التالية
               </GradientButton>
             ) : (
-              <div className="glass rounded-2xl p-4 sm:p-5 text-sm sm:text-base text-white/80">
+              <div className="glass rounded-2xl p-4 text-white/80">
                 ⏳ في انتظار قائد اللعبة للانتقال للجولة التالية...
-                <p className="text-xs sm:text-sm text-white/60 mt-2">
-                  سيتم التقدم تلقائيًا إذا انتهى الوقت أو قام القائد بالضغط على الزر.
-                </p>
               </div>
             )}
           </div>

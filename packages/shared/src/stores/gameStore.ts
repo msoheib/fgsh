@@ -1,8 +1,101 @@
 import { create } from 'zustand';
 import { Game, Player, GameSettings, GameRound, Question, PlayerAnswer } from '../types';
-import { GameService, RealtimeService } from '../services';
+import { GameService, RealtimeService, SyncService, SyncState } from '../services';
 import { saveGameSession, clearGameSession, getGameSession } from '../utils/sessionStorage';
 import { GAME_CONFIG } from '../constants/game';
+
+/**
+ * Helper function to handle sync results and update store state.
+ * This is called by SyncService callbacks and provides a safety net
+ * to catch any state that was missed by realtime events.
+ */
+async function handleSyncResult(
+  state: SyncState,
+  get: () => GameState,
+  set: (partial: Partial<GameState>) => void
+): Promise<void> {
+  const currentState = get();
+  
+  // Only log if something changed to reduce noise
+  const gameChanged = state.game.status !== currentState.game?.status ||
+    state.game.current_round !== currentState.game?.current_round;
+  
+  if (gameChanged) {
+    console.log('🔄 Sync detected game state change:', {
+      oldStatus: currentState.game?.status,
+      newStatus: state.game.status,
+      oldRound: currentState.game?.current_round,
+      newRound: state.game.current_round
+    });
+  }
+
+  // Update game state if changed
+  if (state.game.id !== currentState.game?.id || gameChanged) {
+    const isPhaseCaptain = currentState.currentPlayer?.id === state.game.phase_captain_id;
+    set({ 
+      game: state.game, 
+      isPhaseCaptain,
+      lastSyncTime: Date.now()
+    });
+  }
+
+  // Update players if changed
+  const currentPlayerIds = new Set(currentState.players.map(p => p.id));
+  const newPlayerIds = new Set(state.players.map(p => p.id));
+  const playersChanged = currentState.players.length !== state.players.length ||
+    [...currentPlayerIds].some(id => !newPlayerIds.has(id));
+  
+  if (playersChanged) {
+    console.log('🔄 Sync detected player list change');
+    set({ players: state.players });
+  }
+
+  // Update round state if we have a current round
+  if (state.currentRound && state.game.status === 'playing') {
+    const { useRoundStore } = await import('./roundStore');
+    const roundState = useRoundStore.getState();
+    
+    const roundChanged = 
+      roundState.currentRound?.id !== state.currentRound.id ||
+      roundState.currentRound?.status !== state.currentRound.status ||
+      roundState.roundStatus !== state.currentRound.status;
+    
+    if (roundChanged) {
+      console.log('🔄 Sync detected round state change:', {
+        oldRoundId: roundState.currentRound?.id,
+        newRoundId: state.currentRound.id,
+        oldStatus: roundState.roundStatus,
+        newStatus: state.currentRound.status
+      });
+
+      // Calculate time remaining
+      const startTime = state.currentRound.timer_starts_at
+        ? new Date(state.currentRound.timer_starts_at).getTime()
+        : Date.now();
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const timeRemaining = Math.max(0, state.currentRound.timer_duration - elapsed);
+
+      // Get question from the round if it has one
+      const question = (state.currentRound as any).question || roundState.question;
+
+      useRoundStore.setState({
+        currentRound: state.currentRound,
+        question: question,
+        roundNumber: state.currentRound.round_number,
+        roundStatus: state.currentRound.status,
+        timeRemaining,
+        timerActive: timeRemaining > 0,
+        allAnswers: state.answers.length > 0 ? state.answers : roundState.allAnswers,
+        totalRounds: state.game.round_count,
+        // Update player submission state
+        hasSubmittedAnswer: !!state.playerAnswer,
+        myAnswer: state.playerAnswer?.answer_text || roundState.myAnswer,
+        hasSubmittedVote: !!state.playerVote,
+        myVote: state.playerVote?.answer_id || roundState.myVote,
+      });
+    }
+  }
+}
 
 interface GameState {
   // Game data
@@ -20,6 +113,7 @@ interface GameState {
   error: string | null;
   rehydrationAttempted: boolean; // Whether session rehydration has been attempted
   roundEndResetTimeout: ReturnType<typeof setTimeout> | null; // Track timeout for round end reset
+  lastSyncTime: number | null; // Timestamp of last successful sync
 
   // Actions
   createGame: (hostName: string, settings: GameSettings) => Promise<void>;
@@ -48,6 +142,7 @@ export const useGameStore = create<GameState>((set, get) => ({
   isPhaseCaptain: false,
   isDisplayMode: false,
   isConnected: false,
+  lastSyncTime: null,
   isLoading: false,
   error: null,
   rehydrationAttempted: false,
@@ -84,10 +179,13 @@ export const useGameStore = create<GameState>((set, get) => ({
         isPhaseCaptain: true, // Host starts as phase captain
         players: [player],
         isLoading: false,
+        rehydrationAttempted: true, // Fresh session - skip rehydrate guard
       });
 
-      // Subscribe to realtime updates
-      RealtimeService.subscribeToGame(game.id, {
+      // Subscribe to realtime updates with presence tracking
+      RealtimeService.subscribeToGame(
+        game.id,
+        {
         onGameUpdated: (updatedGame) => {
           console.log('📡 Game updated event received:', {
             currentRound: updatedGame.current_round,
@@ -171,10 +269,13 @@ export const useGameStore = create<GameState>((set, get) => ({
               roundStatus: 'answering',
               timeRemaining: initialTimeRemaining,
               timerActive: true,
+              allAnswers: [],
+              playerVotes: new Map(),
               playerAnswers: new Map(),
               myAnswer: null,
               hasSubmittedAnswer: false,
-              allAnswers: [],
+              myVote: null,
+              hasSubmittedVote: false,
               totalRounds: get().game?.round_count || 4,
               isLoading: false,
             });
@@ -296,65 +397,59 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         onConnected: () => {
           set({ isConnected: true });
+          // Start periodic sync for safety net
+          const { game: g, currentPlayer: cp } = get();
+          if (g?.id) {
+            SyncService.startSync(g.id, cp?.id || null, (result) => {
+              if (result.success && result.state) {
+                handleSyncResult(result.state, get, set);
+              }
+            });
+          }
         },
         onDisconnected: () => {
           set({ isConnected: false });
         },
         onReconnected: async () => {
-          // Refetch game state after reconnection to catch missed updates
+          // Force immediate sync to catch missed updates
           const { game } = get();
           if (!game) return;
 
-          console.log('🔄 Refetching game state after reconnection...');
-          const freshGame = await GameService.getGame(game.id);
-          if (freshGame) {
-            const currentPlayer = get().currentPlayer;
-            const isPhaseCaptain = currentPlayer?.id === freshGame.phase_captain_id;
-            set({ game: freshGame, isPhaseCaptain });
-            console.log('✅ Game state refreshed:', { status: freshGame.status, currentRound: freshGame.current_round });
+          console.log('🔄 Force syncing after reconnection...');
+          const currentPlayer = get().currentPlayer;
+          const result = await SyncService.forceSyncNow(game.id, currentPlayer?.id || null);
 
-            // If game is playing, also refetch current round state
-            if (freshGame.status === 'playing' && freshGame.current_round > 0) {
-              console.log('🔄 Game is playing, refetching round state...');
-              const { RoundService } = await import('../services/RoundService');
-              try {
-                const currentRound = await RoundService.getCurrentRound(freshGame.id);
-                if (currentRound) {
-                  const { useRoundStore } = await import('./roundStore');
-                  const question = currentRound.question!;
-
-                  // Calculate time remaining
-                  const startTime = currentRound.timer_starts_at
-                    ? new Date(currentRound.timer_starts_at).getTime()
-                    : Date.now();
-                  const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                  const timeRemaining = Math.max(0, currentRound.timer_duration - elapsed);
-
-                  // Get answers if in voting phase
-                  const answers = currentRound.status === 'voting' || currentRound.status === 'completed'
-                    ? await RoundService.getRoundAnswers(currentRound.id)
-                    : [];
-
-                  useRoundStore.setState({
-                    currentRound,
-                    question,
-                    roundNumber: currentRound.round_number,
-                    roundStatus: currentRound.status,
-                    timeRemaining,
-                    timerActive: true,
-                    allAnswers: answers,
-                    totalRounds: freshGame.round_count,
-                  });
-
-                  console.log('✅ Round state refreshed:', { roundNumber: currentRound.round_number, status: currentRound.status });
-                }
-              } catch (error) {
-                console.error('❌ Failed to refetch round state:', error);
-              }
-            }
+          if (result.success && result.state) {
+            await handleSyncResult(result.state, get, set);
+            console.log('✅ Full state sync completed after reconnection');
+          } else {
+            console.error('❌ Sync failed after reconnection:', result.error);
           }
         },
-      });
+        onPresenceSync: (presences) => {
+          console.log('👥 Presence sync:', presences.length, 'players online');
+          // Update player connection status based on presence
+          const onlinePlayerIds = new Set(presences.map(p => p.player_id));
+          const players = get().players.map(player => ({
+            ...player,
+            connection_status: onlinePlayerIds.has(player.id) ? 'connected' : 'disconnected'
+          }));
+          set({ players });
+        },
+        onPresenceJoin: (presence) => {
+          console.log('👤 Player joined (presence):', presence.nickname);
+        },
+        onPresenceLeave: (presence) => {
+          console.log('👤 Player left (presence):', presence.nickname);
+        },
+      },
+      // Pass player info for presence tracking
+      {
+        id: player.id,
+        nickname: player.user_name,
+        is_host: true
+      }
+      );
 
       // Save session to localStorage for reconnection after refresh
       saveGameSession({
@@ -390,6 +485,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         isDisplayMode: true, // Flag for display-only mode
         players: [],
         isLoading: false,
+        rehydrationAttempted: true, // Fresh session - skip rehydrate guard
       });
 
       // Subscribe to realtime updates (display mode - no player actions)
@@ -496,60 +592,48 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         onConnected: () => {
           set({ isConnected: true });
+          // Start periodic sync for display mode (no player ID)
+          const { game: g } = get();
+          if (g) {
+            SyncService.startSync(g.id, null, (result) => {
+              if (result.success && result.state) {
+                handleSyncResult(result.state, get, set);
+              }
+            });
+          }
         },
         onDisconnected: () => {
           set({ isConnected: false });
         },
         onReconnected: async () => {
-          // Refetch game state after reconnection
+          // Force immediate sync for display mode
           const { game } = get();
           if (!game) return;
 
-          console.log('📺 [Display Mode] Refetching game state after reconnection...');
-          const freshGame = await GameService.getGame(game.id);
-          if (freshGame) {
-            set({ game: freshGame });
-            console.log('✅ Game state refreshed:', { status: freshGame.status, currentRound: freshGame.current_round });
-
-            // If game is playing, also refetch current round state
-            if (freshGame.status === 'playing' && freshGame.current_round > 0) {
-              const { RoundService } = await import('../services/RoundService');
-              try {
-                const currentRound = await RoundService.getCurrentRound(freshGame.id);
-                if (currentRound) {
-                  const { useRoundStore } = await import('./roundStore');
-                  const question = currentRound.question!;
-
-                  const startTime = currentRound.timer_starts_at
-                    ? new Date(currentRound.timer_starts_at).getTime()
-                    : Date.now();
-                  const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                  const timeRemaining = Math.max(0, currentRound.timer_duration - elapsed);
-
-                  const answers = currentRound.status === 'voting' || currentRound.status === 'completed'
-                    ? await RoundService.getRoundAnswers(currentRound.id)
-                    : [];
-
-                  useRoundStore.setState({
-                    currentRound,
-                    question,
-                    roundNumber: currentRound.round_number,
-                    roundStatus: currentRound.status,
-                    timeRemaining,
-                    timerActive: true,
-                    allAnswers: answers,
-                    totalRounds: freshGame.round_count,
-                  });
-
-                  console.log('✅ Round state refreshed');
-                }
-              } catch (error) {
-                console.error('❌ Failed to refetch round state:', error);
-              }
-            }
+          console.log('📺 [Display Mode] Force syncing after reconnection...');
+          const result = await SyncService.forceSyncNow(game.id, null);
+          
+          if (result.success && result.state) {
+            await handleSyncResult(result.state, get, set);
+            console.log('✅ Display mode state sync completed');
+          } else {
+            console.error('❌ Sync failed after reconnection:', result.error);
           }
         },
-      });
+        onPresenceSync: (presences) => {
+          console.log('📺 [Display Mode] Presence sync:', presences.length, 'players online');
+          // In display mode, just track online players but don't update connection status
+          // since display mode doesn't participate as a player
+        },
+        onPresenceJoin: (presence) => {
+          console.log('📺 [Display Mode] Player joined (presence):', presence.nickname);
+        },
+        onPresenceLeave: (presence) => {
+          console.log('📺 [Display Mode] Player left (presence):', presence.nickname);
+        },
+      }
+      // No player info for display mode - don't pass third parameter
+      );
 
       // Save display mode session to localStorage
       saveGameSession({
@@ -603,6 +687,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         isPhaseCaptain,
         players,
         isLoading: false,
+        rehydrationAttempted: true, // Fresh session - skip rehydrate guard
       });
 
       // Subscribe to realtime updates
@@ -690,10 +775,13 @@ export const useGameStore = create<GameState>((set, get) => ({
               roundStatus: 'answering',
               timeRemaining: initialTimeRemaining,
               timerActive: true,
+              allAnswers: [],
+              playerVotes: new Map(),
               playerAnswers: new Map(),
               myAnswer: null,
               hasSubmittedAnswer: false,
-              allAnswers: [],
+              myVote: null,
+              hasSubmittedVote: false,
               totalRounds: get().game?.round_count || 4,
               isLoading: false,
             });
@@ -815,65 +903,59 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         onConnected: () => {
           set({ isConnected: true });
+          // Start periodic sync for safety net
+          const { game: g, currentPlayer: cp } = get();
+          if (g?.id) {
+            SyncService.startSync(g.id, cp?.id || null, (result) => {
+              if (result.success && result.state) {
+                handleSyncResult(result.state, get, set);
+              }
+            });
+          }
         },
         onDisconnected: () => {
           set({ isConnected: false });
         },
         onReconnected: async () => {
-          // Refetch game state after reconnection to catch missed updates
+          // Force immediate sync to catch missed updates
           const { game } = get();
-          if (!game) return;
+          if (!game?.id) return;
 
-          console.log('🔄 Refetching game state after reconnection...');
-          const freshGame = await GameService.getGame(game.id);
-          if (freshGame) {
-            const currentPlayer = get().currentPlayer;
-            const isPhaseCaptain = currentPlayer?.id === freshGame.phase_captain_id;
-            set({ game: freshGame, isPhaseCaptain });
-            console.log('✅ Game state refreshed:', { status: freshGame.status, currentRound: freshGame.current_round });
-
-            // If game is playing, also refetch current round state
-            if (freshGame.status === 'playing' && freshGame.current_round > 0) {
-              console.log('🔄 Game is playing, refetching round state...');
-              const { RoundService } = await import('../services/RoundService');
-              try {
-                const currentRound = await RoundService.getCurrentRound(freshGame.id);
-                if (currentRound) {
-                  const { useRoundStore } = await import('./roundStore');
-                  const question = currentRound.question!;
-
-                  // Calculate time remaining
-                  const startTime = currentRound.timer_starts_at
-                    ? new Date(currentRound.timer_starts_at).getTime()
-                    : Date.now();
-                  const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                  const timeRemaining = Math.max(0, currentRound.timer_duration - elapsed);
-
-                  // Get answers if in voting phase
-                  const answers = currentRound.status === 'voting' || currentRound.status === 'completed'
-                    ? await RoundService.getRoundAnswers(currentRound.id)
-                    : [];
-
-                  useRoundStore.setState({
-                    currentRound,
-                    question,
-                    roundNumber: currentRound.round_number,
-                    roundStatus: currentRound.status,
-                    timeRemaining,
-                    timerActive: true,
-                    allAnswers: answers,
-                    totalRounds: freshGame.round_count,
-                  });
-
-                  console.log('✅ Round state refreshed:', { roundNumber: currentRound.round_number, status: currentRound.status });
-                }
-              } catch (error) {
-                console.error('❌ Failed to refetch round state:', error);
-              }
-            }
+          console.log('🔄 Force syncing after reconnection...');
+          const currentPlayer = get().currentPlayer;
+          const result = await SyncService.forceSyncNow(game.id, currentPlayer?.id || null);
+          
+          if (result.success && result.state) {
+            await handleSyncResult(result.state, get, set);
+            console.log('✅ Full state sync completed after reconnection');
+          } else {
+            console.error('❌ Sync failed after reconnection:', result.error);
           }
         },
-      });
+        onPresenceSync: (presences) => {
+          console.log('👥 Presence sync:', presences.length, 'players online');
+          // Update player connection status based on presence
+          const onlinePlayerIds = new Set(presences.map(p => p.player_id));
+          const players = get().players.map(p => ({
+            ...p,
+            connection_status: onlinePlayerIds.has(p.id) ? 'connected' : 'disconnected'
+          }));
+          set({ players });
+        },
+        onPresenceJoin: (presence) => {
+          console.log('👤 Player joined (presence):', presence.nickname);
+        },
+        onPresenceLeave: (presence) => {
+          console.log('👤 Player left (presence):', presence.nickname);
+        },
+      },
+      // Pass player info for presence tracking
+      {
+        id: player.id,
+        nickname: player.user_name,
+        is_host: false
+      }
+      );
 
       // If game is already playing, fetch current round data (mid-game join)
       if (game.status === 'playing' && game.current_round > 0) {
@@ -999,12 +1081,18 @@ export const useGameStore = create<GameState>((set, get) => ({
         return false;
       }
 
-      // Don't rehydrate if player is disconnected
+      // If player is marked disconnected, reconnect them
       if (currentPlayer.connection_status === 'disconnected') {
-        console.log('❌ Player is disconnected, clearing session');
-        clearGameSession();
-        set({ isLoading: false, rehydrationAttempted: true });
-        return false;
+        console.log('🔄 Rehydrating disconnected player, marking as connected');
+        try {
+          await GameService.updatePlayerStatus(currentPlayer.id, 'connected');
+          currentPlayer.connection_status = 'connected';
+        } catch (err) {
+          console.error('❌ Failed to reconnect player:', err);
+          clearGameSession();
+          set({ isLoading: false, rehydrationAttempted: true });
+          return false;
+        }
       }
 
       // Check if player is still phase captain
@@ -1115,65 +1203,59 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         onConnected: () => {
           set({ isConnected: true });
+          // Start periodic sync for safety net
+          const { game: g, currentPlayer: cp } = get();
+          if (g?.id) {
+            SyncService.startSync(g.id, cp?.id || null, (result) => {
+              if (result.success && result.state) {
+                handleSyncResult(result.state, get, set);
+              }
+            });
+          }
         },
         onDisconnected: () => {
           set({ isConnected: false });
         },
         onReconnected: async () => {
-          // Refetch game state after reconnection to catch missed updates
+          // Force immediate sync to catch missed updates
           const { game } = get();
-          if (!game) return;
+          if (!game?.id) return;
 
-          console.log('🔄 Refetching game state after reconnection...');
-          const freshGame = await GameService.getGame(game.id);
-          if (freshGame) {
-            const currentPlayer = get().currentPlayer;
-            const isPhaseCaptain = currentPlayer?.id === freshGame.phase_captain_id;
-            set({ game: freshGame, isPhaseCaptain });
-            console.log('✅ Game state refreshed:', { status: freshGame.status, currentRound: freshGame.current_round });
-
-            // If game is playing, also refetch current round state
-            if (freshGame.status === 'playing' && freshGame.current_round > 0) {
-              console.log('🔄 Game is playing, refetching round state...');
-              const { RoundService } = await import('../services/RoundService');
-              try {
-                const currentRound = await RoundService.getCurrentRound(freshGame.id);
-                if (currentRound) {
-                  const { useRoundStore } = await import('./roundStore');
-                  const question = currentRound.question!;
-
-                  // Calculate time remaining
-                  const startTime = currentRound.timer_starts_at
-                    ? new Date(currentRound.timer_starts_at).getTime()
-                    : Date.now();
-                  const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                  const timeRemaining = Math.max(0, currentRound.timer_duration - elapsed);
-
-                  // Get answers if in voting phase
-                  const answers = currentRound.status === 'voting' || currentRound.status === 'completed'
-                    ? await RoundService.getRoundAnswers(currentRound.id)
-                    : [];
-
-                  useRoundStore.setState({
-                    currentRound,
-                    question,
-                    roundNumber: currentRound.round_number,
-                    roundStatus: currentRound.status,
-                    timeRemaining,
-                    timerActive: true,
-                    allAnswers: answers,
-                    totalRounds: freshGame.round_count,
-                  });
-
-                  console.log('✅ Round state refreshed:', { roundNumber: currentRound.round_number, status: currentRound.status });
-                }
-              } catch (error) {
-                console.error('❌ Failed to refetch round state:', error);
-              }
-            }
+          console.log('🔄 Force syncing after reconnection...');
+          const currentPlayer = get().currentPlayer;
+          const result = await SyncService.forceSyncNow(game.id, currentPlayer?.id || null);
+          
+          if (result.success && result.state) {
+            await handleSyncResult(result.state, get, set);
+            console.log('✅ Full state sync completed after reconnection');
+          } else {
+            console.error('❌ Sync failed after reconnection:', result.error);
           }
         },
-      });
+        onPresenceSync: (presences) => {
+          console.log('👥 Presence sync:', presences.length, 'players online');
+          // Update player connection status based on presence
+          const onlinePlayerIds = new Set(presences.map(p => p.player_id));
+          const players = get().players.map(p => ({
+            ...p,
+            connection_status: onlinePlayerIds.has(p.id) ? 'connected' : 'disconnected'
+          }));
+          set({ players });
+        },
+        onPresenceJoin: (presence) => {
+          console.log('👤 Player joined (presence):', presence.nickname);
+        },
+        onPresenceLeave: (presence) => {
+          console.log('👤 Player left (presence):', presence.nickname);
+        },
+      },
+      // Pass player info for presence tracking
+      {
+        id: currentPlayer.id,
+        nickname: currentPlayer.user_name,
+        is_host: currentPlayer.is_host
+      }
+      );
 
       // If game is playing and there's an active round, restore round state
       if (game.status === 'playing' && game.current_round > 0) {
@@ -1331,48 +1413,65 @@ export const useGameStore = create<GameState>((set, get) => ({
     set({ isLoading: loading });
   },
 
-  // Promote new phase captain when current captain disconnects
+  // Promote new phase captain when current captain disconnects (atomic operation)
   promoteNewCaptain: async (disconnectedPlayerId: string) => {
-    const { game, players, currentPlayer } = get();
+    const { game, currentPlayer } = get();
     if (!game) return;
 
-    console.log('🔄 Promoting new phase captain, disconnected player:', disconnectedPlayerId);
-
-    // Find next available player (prefer host, then first remaining player)
-    const remainingPlayers = players.filter(p => p.id !== disconnectedPlayerId);
-    const newCaptain = remainingPlayers.find(p => p.is_host) || remainingPlayers[0];
-
-    if (!newCaptain) {
-      console.log('⚠️ No remaining players to promote');
-      return;
-    }
-
-    console.log('👑 Promoting player to phase captain:', newCaptain.user_name, newCaptain.id);
+    console.log('🔄 Attempting atomic phase captain promotion, disconnected player:', disconnectedPlayerId);
 
     try {
-      // Update database
+      // Use atomic RPC function to prevent race conditions
       const { getSupabase } = await import('../services/supabase');
       const supabase = getSupabase();
-      const { error } = await supabase
-        .from('games')
-        .update({ phase_captain_id: newCaptain.id })
-        .eq('id', game.id);
+
+      const { data, error } = await supabase.rpc('promote_phase_captain', {
+        p_game_id: game.id,
+        p_disconnected_player_id: disconnectedPlayerId
+      });
 
       if (error) {
         console.error('❌ Failed to promote new captain:', error);
         return;
       }
 
+      if (!data || data.length === 0) {
+        console.error('❌ No response from captain promotion');
+        return;
+      }
+
+      const result = data[0];
+      if (!result.success) {
+        console.log('⚠️ Captain promotion not needed:', result.message);
+        return;
+      }
+
+      console.log('👑 New phase captain promoted atomically:', {
+        newCaptainId: result.new_captain_id,
+        message: result.message
+      });
+
       // Update local state (will also be updated via Realtime onGameUpdated)
-      const isPhaseCaptain = currentPlayer?.id === newCaptain.id;
+      const isPhaseCaptain = currentPlayer?.id === result.new_captain_id;
       set({
-        game: { ...game, phase_captain_id: newCaptain.id },
+        game: { ...game, phase_captain_id: result.new_captain_id },
         isPhaseCaptain
       });
 
-      console.log('✅ New phase captain promoted:', { newCaptainId: newCaptain.id, isPhaseCaptain });
+      // Broadcast the captain change for immediate UI update
+      if (RealtimeService) {
+        await RealtimeService.broadcastEvent(game.id, 'captain_promoted', {
+          new_captain_id: result.new_captain_id,
+          old_captain_id: disconnectedPlayerId
+        });
+      }
+
+      console.log('✅ Captain promotion complete:', {
+        newCaptainId: result.new_captain_id,
+        isPhaseCaptain
+      });
     } catch (error) {
-      console.error('❌ Error promoting new captain:', error);
+      console.error('❌ Error in captain promotion:', error);
     }
   },
 
@@ -1382,6 +1481,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     const currentTimeout = get().roundEndResetTimeout;
     if (currentTimeout) {
       clearTimeout(currentTimeout);
+    }
+
+    // Stop all syncs and realtime subscriptions
+    const currentGame = get().game;
+    if (currentGame) {
+      SyncService.stopSync(currentGame.id);
+      RealtimeService.unsubscribeFully(currentGame.id);
     }
 
     set({
@@ -1396,6 +1502,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       isLoading: false,
       error: null,
       roundEndResetTimeout: null,
+      lastSyncTime: null,
     });
   },
 }));

@@ -86,8 +86,7 @@ BEGIN
       is_host,
       score,
       connection_status,
-      joined_at,
-      last_heartbeat
+      joined_at
     ) VALUES (
       gen_random_uuid(),
       v_game_id,
@@ -95,7 +94,6 @@ BEGIN
       TRUE,
       0,
       'connected',
-      NOW(),
       NOW()
     )
     RETURNING id INTO v_player_id;

@@ -241,6 +241,25 @@ export class RoundService {
       .single();
 
     if (error) {
+      // Handle duplicate vote gracefully (e.g. double-click, retry after reconnect)
+      if (error.code === '23505') {
+        console.log('⚠️ Duplicate vote detected, returning existing record');
+        const { data: existingVote, error: fetchError } = await supabase
+          .from('votes')
+          .select('*')
+          .eq('round_id', roundId)
+          .eq('voter_id', voterId)
+          .single();
+
+        if (fetchError) {
+          throw new GameError(ErrorType.CONNECTION_LOST, fetchError.message);
+        }
+
+        if (existingVote) {
+          return existingVote;
+        }
+      }
+
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
 
@@ -308,22 +327,32 @@ export class RoundService {
   static async getCurrentRound(gameId: string): Promise<GameRound | null> {
     const supabase = getSupabase();
 
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('games')
       .select('current_round')
       .eq('id', gameId)
       .single();
 
+    if (error && error.code === '406') {
+      // No active round yet
+      return null;
+    }
+
     if (!data || !data.current_round) {
       return null;
     }
 
-    const { data: round } = await supabase
+    const { data: round, error: roundError } = await supabase
       .from('game_rounds')
       .select('*, question:questions(*)')
       .eq('game_id', gameId)
       .eq('round_number', data.current_round)
-      .single();
+      .maybeSingle();
+
+    if (roundError && roundError.code !== 'PGRST116') {
+      // If not found, fall through to return null
+      throw roundError;
+    }
 
     return round;
   }

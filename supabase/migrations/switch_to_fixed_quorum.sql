@@ -109,7 +109,7 @@ BEGIN
       WHERE gr.id = p_round_id;
 
       -- Calculate scores before advancing
-      PERFORM calculate_and_update_scores(p_round_id);
+      PERFORM calculate_and_update_scores(p_round_id, v_game.id);
 
       -- Calculate next round number
       v_next_round_number := v_game.current_round + 1;
@@ -206,7 +206,7 @@ BEGIN
     WHERE gr.id = p_round_id;
 
     -- Calculate scores
-    PERFORM calculate_and_update_scores(p_round_id);
+    PERFORM calculate_and_update_scores(p_round_id, v_game.id);
 
     -- Calculate next round number
     v_next_round_number := v_game.current_round + 1;

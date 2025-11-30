@@ -7,6 +7,7 @@ export interface Game {
   id: string;
   code: string;
   host_id: string | null;
+  auth_host_id: string | null; // Authenticated user who owns the game (for billing)
   phase_captain_id: string | null; // Player responsible for triggering phase transitions
   status: GameStatus;
   round_count: number;
@@ -31,9 +32,9 @@ export interface Question {
   id: string;
   question_text: string;
   correct_answer: string;
-  category: string;
+  category: string | null;
   difficulty: 'easy' | 'medium' | 'hard';
-  language: string;
+  language: 'ar' | 'en';
   created_at: string;
 }
 
