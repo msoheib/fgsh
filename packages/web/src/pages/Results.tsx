@@ -5,6 +5,7 @@ import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
 import { PlayerAvatar } from '../components/PlayerAvatar';
 import { useGameStore, ScoringService, GameService, clearGameSession } from '@fakash/shared';
+import { GameLoader } from '../components/GameLoader';
 
 export const Results: React.FC = () => {
   const navigate = useNavigate();
@@ -89,14 +90,7 @@ export const Results: React.FC = () => {
 
   // Show loading state if leaderboard hasn't loaded yet
   if (leaderboard.length === 0 && !hasLoadedRef.current) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-center">
-          <div className="w-16 h-16 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white text-lg">جارٍ تحميل النتائج...</p>
-        </div>
-      </div>
-    );
+    return <GameLoader message="🏆 نحسب النتائج النهائية..." />;
   }
 
   const winner = leaderboard[0];

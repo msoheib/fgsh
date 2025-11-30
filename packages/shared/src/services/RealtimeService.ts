@@ -1,4 +1,4 @@
-import { RealtimeChannel, RealtimePresenceState } from '@supabase/supabase-js';
+import { RealtimeChannel } from '@supabase/supabase-js';
 import { getSupabase } from './supabase';
 import {
   Player,
@@ -77,7 +77,6 @@ export class RealtimeService {
   private static readonly WATCHDOG_INTERVAL = 5000; // Check every 5 seconds (reduced from 10)
   private static readonly SILENT_DROP_THRESHOLD = 20000; // If no events for 20s, consider connection dropped
   private static readonly HEARTBEAT_INTERVAL = 3000; // Send heartbeat every 3 seconds
-  private static readonly PRESENCE_SYNC_INTERVAL = 2000; // Sync presence every 2 seconds
 
   /**
    * Subscribe to game events with automatic retry and state recovery
@@ -330,7 +329,6 @@ export class RealtimeService {
     // Subscribe to both channels with retry logic
     let channelsSubscribed = 0;
     const totalChannels = 2;
-    let subscriptionError: Error | null = null;
 
     const handleSubscriptionStatus = (status: string, channelType: string) => {
       console.log(`ðŸ“¡ Realtime ${channelType} channel status:`, status);
@@ -376,7 +374,6 @@ export class RealtimeService {
           console.log('âœ… All realtime connections established');
         }
       } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
-        subscriptionError = new Error(`${channelType} channel error`);
         this.handleConnectionFailure(gameId, callbacks, currentPlayer);
       } else if (status === 'TIMED_OUT') {
         console.error(`âŒ ${channelType} connection timed out`);
@@ -666,8 +663,9 @@ export class RealtimeService {
 
   /**
    * Start watchdog timer to detect silent connection drops
+   * @deprecated Currently disabled - was causing aggressive reconnect loops
    */
-  private static startWatchdog(
+  private static _startWatchdog(
     gameId: string,
     callbacks: GameEventCallbacks,
     currentPlayer?: { id: string; nickname: string; is_host: boolean }

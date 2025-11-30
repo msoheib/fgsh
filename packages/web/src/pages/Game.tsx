@@ -6,6 +6,7 @@ import { GradientButton } from '../components/GradientButton';
 import { Timer } from '../components/Timer';
 import { LeaveGameButton } from '../components/LeaveGameButton';
 import { useGameStore, useRoundStore, GAME_CONFIG } from '@fakash/shared';
+import { GameLoader } from '../components/GameLoader';
 
 export const Game: React.FC = () => {
   const navigate = useNavigate();
@@ -228,37 +229,33 @@ export const Game: React.FC = () => {
     syncScores();
   }, [game, roundStatus]);
 
-  // Loading screen
+  // Loading screen with engaging animation
   if (!game || (!currentPlayer && !isDisplayMode) || !currentRound || !question) {
-    return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <GlassCard className="text-center max-w-md">
-          <p className="text-lg mb-4">جاري التحميل...</p>
-
-          {game && game.status === 'playing' && !currentRound && (
-            <p className="text-sm text-white/60 mb-4">في انتظار إنشاء الجولة...</p>
-          )}
-
-          {game && currentPlayer && !isRecovering && (
-            <GradientButton variant="cyan" onClick={recoverRoundState} className="mt-4">
-              🔄 إعادة المحاولة
-            </GradientButton>
-          )}
-
-          {isRecovering && (
-            <p className="text-sm text-white/60 mt-2">جاري استعادة الحالة...</p>
-          )}
-
-          {game && game.status === 'waiting' && (
-            <GradientButton variant="purple" onClick={() => navigate('/lobby')} className="mt-4">
+    // Show lobby redirect button if game is waiting
+    if (game && game.status === 'waiting') {
+      return (
+        <div className="min-h-screen flex items-center justify-center p-4">
+          <GlassCard className="text-center max-w-md">
+            <p className="text-lg mb-4">اللعبة لم تبدأ بعد</p>
+            <GradientButton variant="purple" onClick={() => navigate('/lobby')} className="w-full mb-3">
               العودة للردهة
             </GradientButton>
-          )}
-
-          <div className="mt-4">
             <LeaveGameButton variant="secondary" size="md" />
-          </div>
-        </GlassCard>
+          </GlassCard>
+        </div>
+      );
+    }
+
+    return (
+      <div className="relative">
+        <GameLoader 
+          showRetry={!!game && !!currentPlayer && !isRecovering}
+          onRetry={recoverRoundState}
+        />
+        {/* Leave button in corner */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2">
+          <LeaveGameButton variant="secondary" size="sm" />
+        </div>
       </div>
     );
   }
