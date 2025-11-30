@@ -128,14 +128,14 @@ export class RealtimeService {
         })
         .on('presence', { event: 'join' }, ({ key, newPresences }) => {
           this.recordEvent(gameId);
-          console.log('ðŸ‘¤ Player joined presence:', key);
+          console.log('👤 Player joined presence:', key);
           if (newPresences && newPresences.length > 0) {
             callbacks.onPresenceJoin?.(newPresences[0] as unknown as PresenceState);
           }
         })
         .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
           this.recordEvent(gameId);
-          console.log('ðŸ‘¤ Player left presence:', key);
+          console.log('👤 Player left presence:', key);
           if (leftPresences && leftPresences.length > 0) {
             callbacks.onPresenceLeave?.(leftPresences[0] as unknown as PresenceState);
           }
@@ -218,11 +218,11 @@ export class RealtimeService {
       (payload) => {
         this.recordEvent(gameId);
         const game = payload.new as Game;
-        console.log('ðŸ“¡ Realtime: Game UPDATE received', { status: game.status, id: game.id });
+        console.log('📡 Realtime: Game UPDATE received', { status: game.status, id: game.id });
         callbacks.onGameUpdated?.(game);
 
         if (game.status === 'playing') {
-          console.log('ðŸŽ® Realtime: Triggering onGameStarted callback');
+          console.log('🎮 Realtime: Triggering onGameStarted callback');
           callbacks.onGameStarted?.(game);
         } else if (game.status === 'finished') {
           callbacks.onGameEnded?.(game);
@@ -267,7 +267,7 @@ export class RealtimeService {
       (payload) => {
         this.recordEvent(gameId);
         const round = payload.new as GameRound;
-        console.log('ðŸ“¢ Realtime: game_rounds UPDATE received', {
+        console.log('📢 Realtime: game_rounds UPDATE received', {
           roundId: round.id,
           status: round.status,
           roundNumber: round.round_number
@@ -291,7 +291,7 @@ export class RealtimeService {
       (payload) => {
         this.recordEvent(gameId);
         const answer = payload.new as PlayerAnswer;
-        console.log('ðŸ“ Realtime: Answer INSERT received', {
+        console.log('📝 Realtime: Answer INSERT received', {
           playerId: answer.player_id,
           roundId: answer.round_id,
           isCorrect: answer.is_correct
@@ -316,7 +316,7 @@ export class RealtimeService {
       (payload) => {
         this.recordEvent(gameId);
         const vote = payload.new as Vote;
-        console.log('ðŸ—³ï¸ Realtime: Vote INSERT received', {
+        console.log('🗳️ Realtime: Vote INSERT received', {
           voterId: vote.voter_id,
           roundId: vote.round_id,
           answerId: vote.answer_id
@@ -331,7 +331,7 @@ export class RealtimeService {
     const totalChannels = 2;
 
     const handleSubscriptionStatus = (status: string, channelType: string) => {
-      console.log(`ðŸ“¡ Realtime ${channelType} channel status:`, status);
+      console.log(`📡 Realtime ${channelType} channel status:`, status);
 
       if (status === 'SUBSCRIBED') {
         channelsSubscribed++;
@@ -356,9 +356,9 @@ export class RealtimeService {
             };
 
             broadcastChannel.track(presenceState).then(() => {
-              console.log('âœ… Presence tracked for player:', currentPlayer.nickname);
+              console.log('✅ Presence tracked for player:', currentPlayer.nickname);
             }).catch((error) => {
-              console.error('âŒ Failed to track presence:', error);
+              console.error('❌ Failed to track presence:', error);
             });
           }
 
@@ -366,17 +366,17 @@ export class RealtimeService {
           this.startHeartbeat(gameId, broadcastChannel);
 
           if (wasReconnecting) {
-            console.log('ðŸ”„ Reconnected - refetching game state');
+            console.log('🔄 Reconnected - refetching game state');
             callbacks.onReconnected?.();
           }
 
           callbacks.onConnected?.();
-          console.log('âœ… All realtime connections established');
+          console.log('✅ All realtime connections established');
         }
       } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
         this.handleConnectionFailure(gameId, callbacks, currentPlayer);
       } else if (status === 'TIMED_OUT') {
-        console.error(`âŒ ${channelType} connection timed out`);
+        console.error(`❌ ${channelType} connection timed out`);
         callbacks.onError?.(new Error(`${channelType} connection timed out`));
       }
     };
@@ -390,10 +390,6 @@ export class RealtimeService {
     // Store channel references
     this.channels.set(gameId, channel);
     this.broadcastChannels.set(gameId, broadcastChannel);
-
-    // Start watchdog to detect silent connection drops
-    // TEMPORARILY DISABLED: Watchdog was causing aggressive reconnect loops
-    // this.startWatchdog(gameId, callbacks, currentPlayer);
 
     // Return unsubscribe function
     return () => this.unsubscribe(gameId);
@@ -414,26 +410,24 @@ export class RealtimeService {
     );
 
     if (retryCount < this.MAX_RETRY_ATTEMPTS) {
-      console.log(`âš ï¸ Connection lost, retrying in ${delay}ms (attempt ${retryCount + 1}/${this.MAX_RETRY_ATTEMPTS})`);
+      console.log(`⚠️ Connection lost, retrying in ${delay}ms (attempt ${retryCount + 1}/${this.MAX_RETRY_ATTEMPTS})`);
 
       const timer = setTimeout(() => {
-        console.log(`ðŸ”„ Attempting reconnection...`);
+        console.log(`🔄 Attempting reconnection...`);
         this.retryAttempts.set(gameId, retryCount + 1);
 
         // STABILIZED: Disabled automatic resubscribe to prevent loops
-        // this.unsubscribe(gameId);
-        // this.subscribeToGame(gameId, callbacks, currentPlayer);
         console.log('Skipping automatic reconnect to prevent loops');
       }, delay);
 
       this.retryTimers.set(gameId, timer);
     } else {
-      console.error(`âŒ Max retry attempts reached for game ${gameId}`);
+      console.error(`❌ Max retry attempts reached for game ${gameId}`);
       callbacks.onError?.(new Error('Failed to establish realtime connection after multiple attempts'));
 
       // Schedule a slow retry
       const timer = setTimeout(() => {
-        console.log('ðŸ”„ Retrying realtime connection after cooldown...');
+        console.log('🔄 Retrying realtime connection after cooldown...');
         this.retryAttempts.set(gameId, this.MAX_RETRY_ATTEMPTS);
         this.unsubscribe(gameId);
         this.subscribeToGame(gameId, callbacks, currentPlayer);
@@ -470,7 +464,7 @@ export class RealtimeService {
     }, this.HEARTBEAT_INTERVAL);
 
     this.heartbeatTimers.set(gameId, heartbeat);
-    console.log('ðŸ’“ Heartbeat started for game', gameId);
+    console.log('💓 Heartbeat started for game', gameId);
   }
 
   /**
@@ -481,7 +475,7 @@ export class RealtimeService {
     if (heartbeat) {
       clearInterval(heartbeat);
       this.heartbeatTimers.delete(gameId);
-      console.log('ðŸ’“ Heartbeat stopped for game', gameId);
+      console.log('💓 Heartbeat stopped for game', gameId);
     }
   }
 
@@ -536,11 +530,11 @@ export class RealtimeService {
   ): boolean {
     const callbacks = this.storedCallbacks.get(gameId);
     if (!callbacks) {
-      console.warn(`âš ï¸ No stored callbacks for game ${gameId}, cannot retry`);
+      console.warn(`⚠️ No stored callbacks for game ${gameId}, cannot retry`);
       return false;
     }
 
-    console.log(`ðŸ”„ Manual retry triggered for game ${gameId}`);
+    console.log(`🔄 Manual retry triggered for game ${gameId}`);
     this.retryAttempts.set(gameId, 0); // Reset retry count
     this.unsubscribe(gameId);
     this.subscribeToGame(gameId, callbacks, currentPlayer);
@@ -571,7 +565,7 @@ export class RealtimeService {
         payload,
       });
     } else {
-      console.warn(`âš ï¸ No broadcast channel for game ${gameId}`);
+      console.warn(`⚠️ No broadcast channel for game ${gameId}`);
     }
   }
 
@@ -662,52 +656,6 @@ export class RealtimeService {
   }
 
   /**
-   * Start watchdog timer to detect silent connection drops
-   * @deprecated Currently disabled - was causing aggressive reconnect loops
-   */
-  private static _startWatchdog(
-    gameId: string,
-    callbacks: GameEventCallbacks,
-    currentPlayer?: { id: string; nickname: string; is_host: boolean }
-  ): void {
-    // Clear existing watchdog if any
-    const existing = this.watchdogTimers.get(gameId);
-    if (existing) {
-      clearInterval(existing);
-    }
-
-    // Mark connection as healthy initially
-    this.connectionHealthy.set(gameId, true);
-    this.lastEventTimes.set(gameId, Date.now());
-
-    const watchdog = setInterval(() => {
-      const lastEvent = this.lastEventTimes.get(gameId) || 0;
-      const timeSinceLastEvent = Date.now() - lastEvent;
-      const wasHealthy = this.connectionHealthy.get(gameId) ?? true;
-
-      if (timeSinceLastEvent > this.SILENT_DROP_THRESHOLD) {
-        if (wasHealthy) {
-          console.warn(`âš ï¸ Watchdog: No events for ${timeSinceLastEvent}ms on game ${gameId}, connection may be stale`);
-          this.connectionHealthy.set(gameId, false);
-          callbacks.onDisconnected?.();
-
-          // Attempt to refresh the connection
-          console.log('ðŸ”„ Watchdog: Triggering connection refresh...');
-          this.retryNow(gameId, currentPlayer);
-        }
-      } else if (!wasHealthy && timeSinceLastEvent < this.SILENT_DROP_THRESHOLD) {
-        // Connection recovered
-        console.log('âœ… Watchdog: Connection recovered for game', gameId);
-        this.connectionHealthy.set(gameId, true);
-        callbacks.onReconnected?.();
-      }
-    }, this.WATCHDOG_INTERVAL);
-
-    this.watchdogTimers.set(gameId, watchdog);
-    console.log('ðŸ• Watchdog: Started for game', gameId);
-  }
-
-  /**
    * Stop watchdog timer for a game
    */
   private static stopWatchdog(gameId: string): void {
@@ -715,7 +663,7 @@ export class RealtimeService {
     if (watchdog) {
       clearInterval(watchdog);
       this.watchdogTimers.delete(gameId);
-      console.log('ðŸ• Watchdog: Stopped for game', gameId);
+      console.log('🐕 Watchdog: Stopped for game', gameId);
     }
     this.lastEventTimes.delete(gameId);
     this.connectionHealthy.delete(gameId);
