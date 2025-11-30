@@ -35,7 +35,7 @@ export function GlassTextInput({
       <TextInput
         style={[
           styles.input,
-          error && styles.inputError,
+          !!error && styles.inputError,
           style,
         ]}
         placeholderTextColor={COLORS.text.muted}

@@ -131,14 +131,14 @@ export class RealtimeService {
           this.recordEvent(gameId);
           console.log('ðŸ‘¤ Player joined presence:', key);
           if (newPresences && newPresences.length > 0) {
-            callbacks.onPresenceJoin?.(newPresences[0] as PresenceState);
+            callbacks.onPresenceJoin?.(newPresences[0] as unknown as PresenceState);
           }
         })
         .on('presence', { event: 'leave' }, ({ key, leftPresences }) => {
           this.recordEvent(gameId);
           console.log('ðŸ‘¤ Player left presence:', key);
           if (leftPresences && leftPresences.length > 0) {
-            callbacks.onPresenceLeave?.(leftPresences[0] as PresenceState);
+            callbacks.onPresenceLeave?.(leftPresences[0] as unknown as PresenceState);
           }
         });
     }

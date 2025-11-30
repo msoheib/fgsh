@@ -28,24 +28,8 @@ export function LeaderboardRow({ player, rank, style }: LeaderboardRowProps) {
   const isTopThree = rank <= 3;
   const gradient = RANK_GRADIENTS[rank as keyof typeof RANK_GRADIENTS];
 
-  const Container = isTopThree ? LinearGradient : View;
-  const containerProps = isTopThree
-    ? {
-        colors: gradient,
-        start: { x: 0, y: 0 },
-        end: { x: 1, y: 0 },
-      }
-    : {};
-
-  return (
-    <Container
-      {...containerProps}
-      style={[
-        styles.container,
-        !isTopThree && styles.containerDefault,
-        style,
-      ]}
-    >
+  const content = (
+    <>
       {/* Rank */}
       <View style={styles.rankContainer}>
         {isTopThree ? (
@@ -84,7 +68,26 @@ export function LeaderboardRow({ player, rank, style }: LeaderboardRowProps) {
       >
         {player.score}
       </Text>
-    </Container>
+    </>
+  );
+
+  if (isTopThree) {
+    return (
+      <LinearGradient
+        colors={gradient}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 0 }}
+        style={[styles.container, style]}
+      >
+        {content}
+      </LinearGradient>
+    );
+  }
+
+  return (
+    <View style={[styles.container, styles.containerDefault, style]}>
+      {content}
+    </View>
   );
 }
 

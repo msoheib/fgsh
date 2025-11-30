@@ -91,7 +91,7 @@ export function CodeInput({
           ref={(ref) => (inputRefs.current[index] = ref)}
           style={[
             styles.input,
-            code[index] && styles.inputFilled,
+            !!code[index] && styles.inputFilled,
           ]}
           value={code[index]}
           onChangeText={(text) => handleChangeText(text, index)}

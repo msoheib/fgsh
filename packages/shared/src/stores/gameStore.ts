@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { Game, Player, GameSettings, GameRound, Question, PlayerAnswer } from '../types';
+import { Game, Player, GameSettings, GameRound, Question, PlayerAnswer, PlayerConnectionStatus } from '../types';
 import { GameService, RealtimeService, SyncService, SyncState } from '../services';
 import { saveGameSession, clearGameSession, getGameSession } from '../utils/sessionStorage';
 import { GAME_CONFIG } from '../constants/game';
@@ -432,7 +432,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           const onlinePlayerIds = new Set(presences.map(p => p.player_id));
           const players = get().players.map(player => ({
             ...player,
-            connection_status: onlinePlayerIds.has(player.id) ? 'connected' : 'disconnected'
+            connection_status: (onlinePlayerIds.has(player.id) ? 'connected' : 'disconnected') as PlayerConnectionStatus
           }));
           set({ players });
         },
@@ -938,7 +938,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           const onlinePlayerIds = new Set(presences.map(p => p.player_id));
           const players = get().players.map(p => ({
             ...p,
-            connection_status: onlinePlayerIds.has(p.id) ? 'connected' : 'disconnected'
+            connection_status: (onlinePlayerIds.has(p.id) ? 'connected' : 'disconnected') as PlayerConnectionStatus
           }));
           set({ players });
         },
@@ -1238,7 +1238,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           const onlinePlayerIds = new Set(presences.map(p => p.player_id));
           const players = get().players.map(p => ({
             ...p,
-            connection_status: onlinePlayerIds.has(p.id) ? 'connected' : 'disconnected'
+            connection_status: (onlinePlayerIds.has(p.id) ? 'connected' : 'disconnected') as PlayerConnectionStatus
           }));
           set({ players });
         },

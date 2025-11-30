@@ -104,11 +104,10 @@ export class TimerService {
       // Broadcast timer sync for other clients
       if (RealtimeService && gameId) {
         await RealtimeService.broadcastTimerSync(gameId, {
-          current_round: roundId,
           timer_remaining: timerState.timeRemaining,
           timer_active: timerState.timerActive,
           server_time: timerState.serverTime
-        });
+        } as any);
       }
 
       // Call update callback if provided
