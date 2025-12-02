@@ -6,7 +6,7 @@ import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
 import { PlayerAvatar } from '../components/PlayerAvatar';
 import { LeaveGameButton } from '../components/LeaveGameButton';
-import { useGameStore } from '@fakash/shared';
+import { useGameStore, GAME_CONFIG } from '@fakash/shared';
 
 export const Lobby: React.FC = () => {
   const navigate = useNavigate();
@@ -94,6 +94,8 @@ export const Lobby: React.FC = () => {
       await startGame();
     } catch (err) {
       console.error('Failed to start game:', err);
+      const message = err instanceof Error ? err.message : 'تعذر بدء اللعبة. تأكد من وجود لاعبين كافيين وحاول مرة أخرى.';
+      alert(message);
     }
   };
 
@@ -209,7 +211,7 @@ export const Lobby: React.FC = () => {
                 variant="pink"
                 onClick={handleStartGame}
                 className="flex-1 w-full sm:w-auto"
-                disabled={players.length < 2}
+                disabled={players.length < GAME_CONFIG.MIN_PLAYERS}
               >
                 بدأ اللعبة
               </GradientButton>
@@ -228,7 +230,7 @@ export const Lobby: React.FC = () => {
               variant="pink"
               onClick={handleStartGame}
               className="w-full"
-              disabled={players.length < 2}
+              disabled={players.length < GAME_CONFIG.MIN_PLAYERS}
             >
               بدأ اللعبة
             </GradientButton>
