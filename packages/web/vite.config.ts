@@ -13,7 +13,7 @@ export default defineConfig({
   server: {
     port: 5173,
     host: true,
-    allowedHosts: ['stan-pick-concerts-destination.trycloudflare.com'],
+    allowedHosts: ['continued-sensors-preventing-samples.trycloudflare.com'],
   },
   build: {
     outDir: 'dist',

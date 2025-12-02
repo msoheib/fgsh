@@ -357,6 +357,15 @@ export class GameService {
     if (error) {
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
+
+    // Ensure the first round exists immediately (safety for TV mode)
+    try {
+      const { RoundService } = await import('./RoundService');
+      await RoundService.createRound(gameId, 1);
+    } catch (err) {
+      console.error('Failed to create initial round from display start:', err);
+      // Do not throw to avoid blocking start; phase captain can still create
+    }
   }
 
   /**
