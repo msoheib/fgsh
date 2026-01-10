@@ -50,13 +50,13 @@ export const GAME_CONFIG = {
 // Arabic UI text
 export const ARABIC_TEXT = {
   // Home screen
-  HOME_TITLE: 'ففش',
+  HOME_TITLE: 'فقش',
   CREATE_GAME: 'إنشاء لعبة',
   JOIN_GAME: 'الانضمام للعبة',
 
   // Create game
   ENTER_YOUR_NAME: 'أدخل اسمك',
-  WELCOME_MESSAGE: 'مرحباً بك في ففش',
+  WELCOME_MESSAGE: 'مرحباً بك في فقش',
   SELECT_ROUNDS: 'عدد الجولات',
   MAX_PLAYERS: 'الحد الأقصى للاعبين',
   LOAD_ROOM: 'تحميل غرفة',

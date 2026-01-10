@@ -1,0 +1,178 @@
+import React, { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useAuthStore, AdminService } from '@fakash/shared';
+import { GlassCard } from '../components/GlassCard';
+import { GradientButton } from '../components/GradientButton';
+import { LoadingSpinner } from '../components/LoadingSpinner';
+import { Logo } from '../components/Logo';
+import { QuestionManager } from '../components/admin/QuestionManager';
+import { UserManager } from '../components/admin/UserManager';
+
+type TabType = 'questions' | 'users';
+
+export const Admin: React.FC = () => {
+  const navigate = useNavigate();
+  const { user, loading: authLoading, signOut } = useAuthStore();
+  const [activeTab, setActiveTab] = useState<TabType>('questions');
+  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
+  const [isAwaitingApproval, setIsAwaitingApproval] = useState(false);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!authLoading && !user) {
+      navigate('/');
+      return;
+    }
+
+    if (user) {
+      checkAdminStatus();
+    }
+  }, [user, authLoading]);
+
+  const checkAdminStatus = async () => {
+    setLoading(true);
+    try {
+      const adminStatus = await AdminService.isAdmin();
+      setIsAdmin(adminStatus);
+
+      if (!adminStatus) {
+        const awaitingStatus = await AdminService.isAwaitingApproval();
+        setIsAwaitingApproval(awaitingStatus);
+      }
+    } catch (error) {
+      console.error('Failed to check admin status:', error);
+      setIsAdmin(false);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSignOut = async () => {
+    await signOut();
+    navigate('/');
+  };
+
+  if (authLoading || loading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  // Not logged in
+  if (!user) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <GlassCard className="max-w-md text-center">
+          <p className="text-lg mb-4">يجب تسجيل الدخول للوصول إلى لوحة الإدارة</p>
+          <GradientButton variant="cyan" onClick={() => navigate('/')} className="w-full">
+            العودة للصفحة الرئيسية
+          </GradientButton>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  // Admin but not approved yet
+  if (isAwaitingApproval) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <GlassCard className="max-w-md text-center">
+          <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-yellow-500/20 flex items-center justify-center">
+            <span className="text-4xl">⏳</span>
+          </div>
+          <h1 className="text-2xl font-bold mb-4">في انتظار الموافقة</h1>
+          <p className="text-white/60 mb-6">
+            تم إنشاء حسابك كمسؤول ولكنه بانتظار الموافقة. يرجى التواصل مع المسؤول الرئيسي.
+          </p>
+          <div className="flex flex-col gap-3">
+            <GradientButton variant="purple" onClick={() => navigate('/')} className="w-full">
+              العودة للصفحة الرئيسية
+            </GradientButton>
+            <GradientButton variant="cyan" onClick={handleSignOut} className="w-full">
+              تسجيل الخروج
+            </GradientButton>
+          </div>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  // Not an admin
+  if (!isAdmin) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4">
+        <GlassCard className="max-w-md text-center">
+          <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-red-500/20 flex items-center justify-center">
+            <span className="text-4xl">🚫</span>
+          </div>
+          <h1 className="text-2xl font-bold mb-4">غير مصرح</h1>
+          <p className="text-white/60 mb-6">
+            ليس لديك صلاحية الوصول إلى لوحة الإدارة.
+          </p>
+          <GradientButton variant="purple" onClick={() => navigate('/')} className="w-full">
+            العودة للصفحة الرئيسية
+          </GradientButton>
+        </GlassCard>
+      </div>
+    );
+  }
+
+  // Admin Dashboard
+  return (
+    <div className="min-h-screen p-4 sm:p-6">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-4">
+            <Logo size="sm" />
+            <div>
+              <h1 className="text-2xl sm:text-3xl font-bold">لوحة الإدارة</h1>
+              <p className="text-white/60 text-sm">إدارة الأسئلة والمستخدمين</p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <GradientButton variant="purple" onClick={() => navigate('/')}>
+              الصفحة الرئيسية
+            </GradientButton>
+            <GradientButton variant="cyan" onClick={handleSignOut}>
+              تسجيل الخروج
+            </GradientButton>
+          </div>
+        </div>
+
+        {/* Tab Navigation */}
+        <div className="flex gap-2 mb-6">
+          <button
+            onClick={() => setActiveTab('questions')}
+            className={`px-6 py-3 rounded-xl font-bold transition-all ${
+              activeTab === 'questions'
+                ? 'bg-gradient-to-r from-purple-600 to-purple-800 text-white shadow-lg'
+                : 'glass text-white/70 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            📝 الأسئلة
+          </button>
+          <button
+            onClick={() => setActiveTab('users')}
+            className={`px-6 py-3 rounded-xl font-bold transition-all ${
+              activeTab === 'users'
+                ? 'bg-gradient-to-r from-purple-600 to-purple-800 text-white shadow-lg'
+                : 'glass text-white/70 hover:text-white hover:bg-white/10'
+            }`}
+          >
+            👥 المستخدمين
+          </button>
+        </div>
+
+        {/* Tab Content */}
+        <GlassCard>
+          {activeTab === 'questions' && <QuestionManager />}
+          {activeTab === 'users' && <UserManager />}
+        </GlassCard>
+      </div>
+    </div>
+  );
+};

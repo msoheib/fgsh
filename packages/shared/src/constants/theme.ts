@@ -1,4 +1,4 @@
-// Design system constants based on Fakash brand guidelines
+// Design system constants based on Fgsh brand guidelines
 export const theme = {
   colors: {
     // Primary purple gradient

@@ -7,3 +7,4 @@ export * from './SyncService';
 export * from './PaymentService';
 export * from './HostProfileService';
 export * from './TimerService';
+export * from './AdminService';

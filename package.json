@@ -1,8 +1,8 @@
 {
-  "name": "fakash-game",
+  "name": "fgsh-game",
   "version": "1.0.0",
   "private": true,
-  "description": "Fakash - Multiplayer Arabic trivia party game",
+  "description": "Fgsh - Multiplayer Arabic trivia party game",
   "workspaces": [
     "packages/*"
   ],

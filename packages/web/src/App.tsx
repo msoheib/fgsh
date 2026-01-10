@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { initializeSupabase, useGameStore, useAuthStore } from '@fakash/shared';
+import { initializeSupabase, useGameStore, useAuthStore } from '@fgsh/shared';
 
 // Pages
 import { Home } from './pages/Home';
@@ -14,6 +14,7 @@ import { GameDeepLink } from './pages/GameDeepLink';
 import { Results } from './pages/Results';
 import { PaymentCallback } from './pages/PaymentCallback';
 import { Profile } from './pages/Profile';
+import { Admin } from './pages/Admin';
 
 // Components
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -90,6 +91,9 @@ function AppContent() {
 
         {/* Profile - requires authentication */}
         <Route path="/profile" element={<Profile />} />
+
+        {/* Admin Dashboard - admin-only access handled in component */}
+        <Route path="/admin" element={<Admin />} />
 
         {/* Protected routes - require authentication */}
         <Route path="/payment/callback" element={<ProtectedRoute><PaymentCallback /></ProtectedRoute>} />

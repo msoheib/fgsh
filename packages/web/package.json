@@ -1,5 +1,5 @@
 {
-  "name": "@fakash/web",
+  "name": "@fgsh/web",
   "version": "1.0.0",
   "private": true,
   "type": "module",
@@ -10,7 +10,7 @@
     "type-check": "tsc --noEmit"
   },
   "dependencies": {
-    "@fakash/shared": "*",
+    "@fgsh/shared": "*",
     "@supabase/supabase-js": "^2.76.1",
     "framer-motion": "^10.16.0",
     "qrcode.react": "^3.1.0",
