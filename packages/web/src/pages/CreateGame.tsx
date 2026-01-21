@@ -8,15 +8,15 @@ import { useGameStore, GAME_CONFIG, useAuthStore, PaymentService } from '@fakash
 import { AuthModal } from '../components/auth';
 import { UpgradeModal } from '../components/payment';
 
+// All games are created in TV Display Mode only
+// The creator and all players join via QR code on their phones
 export const CreateGame: React.FC = () => {
   const navigate = useNavigate();
-  const { createGame, createGameAsDisplay, isLoading, error } = useGameStore();
+  const { createGameAsDisplay, isLoading, error } = useGameStore();
   const { user, loading: authLoading } = useAuthStore();
 
-  const [hostName, setHostName] = useState('');
   const [roundCount, setRoundCount] = useState(4);
   const [maxPlayers, setMaxPlayers] = useState(10);
-  const [isDisplayMode, setIsDisplayMode] = useState(false);
 
   // Auth modals
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -41,42 +41,25 @@ export const CreateGame: React.FC = () => {
     setIsCheckingEntitlement(true);
     try {
       const entitlement = await PaymentService.checkHostEntitlement();
-      console.log('DEBUG: Host Entitlement:', entitlement);
-
       if (!entitlement || !entitlement.can_create_games) {
-        // Show upgrade modal if user can't create games
-        console.log('DEBUG: Access Denied. Showing upgrade modal.');
         setShowUpgradeModal(true);
         setIsCheckingEntitlement(false);
         return;
       }
     } catch (err) {
       console.error('Failed to check entitlement:', err);
-      // Allow creation anyway if check fails (graceful degradation)
+      // Allow creation anyway if check fails
     }
     setIsCheckingEntitlement(false);
 
-    // Display mode doesn't require host name (TV display-only)
-    if (!isDisplayMode && !hostName.trim()) {
-      alert('الرجاء إدخال اسمك');
-      return;
-    }
-
     try {
-      if (isDisplayMode) {
-        // Create game in display mode (for TV)
-        await createGameAsDisplay({
-          roundCount,
-          maxPlayers,
-        });
-      } else {
-        // Create game normally with host player
-        await createGame(hostName, {
-          roundCount,
-          maxPlayers,
-        });
-      }
-      navigate('/lobby');
+      // Always create in TV Display Mode
+      await createGameAsDisplay({
+        roundCount,
+        maxPlayers,
+      });
+      // Navigate to TV lobby (display screen)
+      navigate('/tv/lobby');
     } catch (err) {
       console.error('Failed to create game:', err);
     }
@@ -93,7 +76,7 @@ export const CreateGame: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
-      {/* Session Indicator - Top Right */}
+      {/* Session Indicator */}
       {user && (
         <div className="fixed top-4 left-4 z-50">
           <div className="glass px-4 py-2 rounded-full flex items-center gap-2 text-sm">
@@ -126,60 +109,16 @@ export const CreateGame: React.FC = () => {
       />
 
       <GlassCard className="max-w-xl w-full">
-        <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 sm:mb-8">إعدادات اللعبة</h2>
+        <h2 className="text-2xl sm:text-3xl font-bold text-center mb-4">إنشاء غرفة 📺</h2>
+        
+        {/* TV Mode Info */}
+        <div className="p-4 bg-secondary-main/20 border border-secondary-main/50 rounded-2xl mb-6">
+          <p className="text-sm sm:text-base text-center">
+            📱 ستظهر شاشة العرض على هذا الجهاز. امسح رمز QR من هاتفك للانضمام كلاعب
+          </p>
+        </div>
 
         <div className="space-y-5 sm:space-y-6">
-          {/* Display Mode Toggle */}
-          <div className="flex items-center justify-between p-4 glass rounded-2xl">
-            <div className="text-right">
-              <p className="font-semibold text-base sm:text-lg">وضع العرض (للتلفزيون) 📺</p>
-              <p className="text-xs sm:text-sm text-white/60 mt-1">
-                عرض اللعبة فقط بدون مشاركة كلاعب
-              </p>
-            </div>
-            <button
-              onClick={() => setIsDisplayMode(!isDisplayMode)}
-              className={`relative w-14 h-8 rounded-full transition-all ${
-                isDisplayMode
-                  ? 'bg-gradient-to-r from-secondary-main to-secondary-light'
-                  : 'bg-white/20'
-              }`}
-            >
-              <div
-                className={`absolute top-1 w-6 h-6 bg-white rounded-full transition-all ${
-                  isDisplayMode ? 'right-1' : 'right-7'
-                }`}
-              />
-            </button>
-          </div>
-
-          {/* Host name input - only show if NOT in display mode */}
-          {!isDisplayMode && (
-            <div>
-              <label className="block text-right mb-2 sm:mb-3 text-base sm:text-lg font-semibold">
-                اسم المضيف
-              </label>
-              <input
-                type="text"
-                value={hostName}
-                onChange={(e) => setHostName(e.target.value)}
-                placeholder="أدخل اسمك"
-                className="input-glass text-base sm:text-lg"
-                maxLength={50}
-                autoFocus
-              />
-            </div>
-          )}
-
-          {/* Display mode info */}
-          {isDisplayMode && (
-            <div className="p-4 bg-secondary-main/20 border border-secondary-main/50 rounded-2xl">
-              <p className="text-sm sm:text-base text-center">
-                📱 سيتم إنشاء غرفة للعرض على التلفزيون. امسح رمز QR من هاتفك للانضمام كمضيف
-              </p>
-            </div>
-          )}
-
           {/* Round count */}
           <div>
             <label className="block text-right mb-2 sm:mb-3 text-base sm:text-lg font-semibold">
