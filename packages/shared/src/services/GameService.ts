@@ -73,13 +73,12 @@ export class GameService {
       throw new GameError(ErrorType.CONNECTION_LOST, gameError?.message);
     }
 
-    // Add host as first player
+    // Add creator as first player
     const { data: player, error: playerError } = await supabase
       .from('players')
       .insert({
         game_id: game.id,
         user_name: sanitizedName,
-        is_host: true,
         avatar_color: getRandomAvatarColor(),
       })
       .select()
@@ -244,7 +243,7 @@ export class GameService {
 
     // Check if this is the first player (for display mode games)
     const isFirstPlayer = (count || 0) === 0;
-    const shouldBeHost = isFirstPlayer && !game.host_id; // First player becomes host if no host exists
+    const shouldBePhaseCaptain = isFirstPlayer && !game.phase_captain_id; // First player becomes phase captain if none exists
 
     // Add player
     const { data: player, error: playerError } = await supabase
@@ -252,7 +251,6 @@ export class GameService {
       .insert({
         game_id: game.id,
         user_name: sanitizedName,
-        is_host: shouldBeHost,
         avatar_color: getRandomAvatarColor(),
       })
       .select()
@@ -262,18 +260,18 @@ export class GameService {
       throw new GameError(ErrorType.CONNECTION_LOST, playerError?.message);
     }
 
-    // If this is the first player and game has no host, promote them
-    if (shouldBeHost) {
-      console.log('👑 First player joining display mode game, promoting to host and phase captain');
+    // If this is the first player and game has no phase captain, promote them
+    if (shouldBePhaseCaptain) {
+      console.log('👑 First player joining display mode game, promoting to phase captain');
       await supabase
         .from('games')
-        .update({ host_id: player.id, phase_captain_id: player.id })
+        .update({ phase_captain_id: player.id })
         .eq('id', game.id);
 
-      // Return updated game with host_id and phase_captain_id
+      // Return updated game with phase_captain_id
       return {
-        game: { ...game, host_id: player.id, phase_captain_id: player.id },
-        player: { ...player, is_host: true }
+        game: { ...game, phase_captain_id: player.id },
+        player
       };
     }
 
@@ -281,21 +279,20 @@ export class GameService {
   }
 
   /**
-   * Start the game (host only)
+   * Start the game (phase captain only)
    */
   static async startGame(gameId: string, playerId: string): Promise<void> {
     const supabase = getSupabase();
 
-    // Verify player is host
-    const { data: player } = await supabase
-      .from('players')
-      .select('is_host')
-      .eq('id', playerId)
-      .eq('game_id', gameId)
+    // Verify player is phase captain
+    const { data: game } = await supabase
+      .from('games')
+      .select('phase_captain_id')
+      .eq('id', gameId)
       .single();
 
-    if (!player?.is_host) {
-      throw new GameError(ErrorType.CONNECTION_LOST, 'Only host can start game');
+    if (game?.phase_captain_id !== playerId) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Only phase captain can start game');
     }
 
     // Check minimum players

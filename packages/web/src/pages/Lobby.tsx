@@ -1,91 +1,58 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { QRCodeSVG } from 'qrcode.react';
-import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
-import { PlayerAvatar } from '../components/PlayerAvatar';
 import { LeaveGameButton } from '../components/LeaveGameButton';
 import { useGameStore, GAME_CONFIG } from '@fakash/shared';
 
+// Minimal player lobby - no animations, just waiting status
 export const Lobby: React.FC = () => {
   const navigate = useNavigate();
-  const { game, players, currentPlayer, isHost, isDisplayMode, startGame, isConnected } = useGameStore();
+  const { game, players, currentPlayer, isPhaseCaptain, isDisplayMode, startGame, isConnected } = useGameStore();
 
+  // Redirect display mode to TV lobby
   useEffect(() => {
-    // Allow display mode without currentPlayer
-    if (!game || (!currentPlayer && !isDisplayMode)) {
+    if (isDisplayMode) {
+      navigate('/tv/lobby', { replace: true });
+    }
+  }, [isDisplayMode, navigate]);
+
+  // Navigation guards
+  useEffect(() => {
+    if (!game || !currentPlayer) {
       navigate('/');
       return;
     }
-
-    console.log('🎯 Lobby - Game status:', game.status);
-
-    // Listen for game start
     if (game.status === 'playing') {
-      console.log('✅ Navigating to game page...');
       navigate('/game');
     }
   }, [game, game?.status, currentPlayer, navigate]);
 
-  // Polling fallback - refetch game status every 2 seconds
-  // This ensures navigation even if realtime update is missed
+  // Polling fallback
   useEffect(() => {
-    // Allow polling for display mode without currentPlayer
-    if (!game || (!currentPlayer && !isDisplayMode) || game.status !== 'waiting') {
-      return;
-    }
-
-    console.log('🔄 Starting polling fallback for game:', {
-      gameId: game.id,
-      code: game.code,
-      status: game.status,
-      isConnected
-    });
+    if (!game || !currentPlayer || game.status !== 'waiting') return;
 
     const pollInterval = setInterval(async () => {
-      console.log('📡 Polling game status for game:', game.id);
-
       try {
-        // Dynamically import to avoid circular dependencies
-        const { GameService } = await import('@fakash/shared');
+        const { GameService, useGameStore } = await import('@fakash/shared');
         const freshGame = await GameService.getGame(game.id);
-
-        if (freshGame) {
-          console.log('📊 Polled game state:', {
-            status: freshGame.status,
-            currentRound: freshGame.current_round,
-            oldStatus: game.status
-          });
-
-          if (freshGame.status === 'playing') {
-            console.log('✅ Polling detected game started! Navigating...');
-            // Update game state
-            const { useGameStore } = await import('@fakash/shared');
-            const currentPlayer = useGameStore.getState().currentPlayer;
-            const isPhaseCaptain = currentPlayer?.id === freshGame.phase_captain_id;
-            useGameStore.setState({ game: freshGame, isPhaseCaptain });
-
-            // Clear interval and navigate
-            clearInterval(pollInterval);
-            navigate('/game');
-          }
-        } else {
-          console.error('❌ Failed to fetch game state - game not found');
+        
+        if (freshGame?.status === 'playing') {
+          const currentPlayer = useGameStore.getState().currentPlayer;
+          const isPhaseCaptain = currentPlayer?.id === freshGame.phase_captain_id;
+          useGameStore.setState({ game: freshGame, isPhaseCaptain });
+          clearInterval(pollInterval);
+          navigate('/game');
         }
       } catch (error) {
-        console.error('❌ Error polling game status:', error);
+        console.error('Polling error:', error);
       }
-    }, 2000); // Poll every 2 seconds
+    }, 2000);
 
-    return () => {
-      console.log('🛑 Stopping polling fallback');
-      clearInterval(pollInterval);
-    };
-  }, [game, currentPlayer, navigate, isConnected]);
+    return () => clearInterval(pollInterval);
+  }, [game, currentPlayer, navigate]);
 
-  // Allow display mode without currentPlayer
-  if (!game || (!currentPlayer && !isDisplayMode)) {
+  if (isDisplayMode || !game || !currentPlayer) {
     return null;
   }
 
@@ -93,139 +60,59 @@ export const Lobby: React.FC = () => {
     try {
       await startGame();
     } catch (err) {
-      console.error('Failed to start game:', err);
-      const message = err instanceof Error ? err.message : 'تعذر بدء اللعبة. تأكد من وجود لاعبين كافيين وحاول مرة أخرى.';
-      alert(message);
+      console.error('Failed to start:', err);
+      alert(err instanceof Error ? err.message : 'تعذر بدء اللعبة');
     }
   };
 
-  // Generate join URL for QR code
-  const joinUrl = `${window.location.origin}/join?code=${game.code}`;
-
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-6">
-      <Logo size="sm" className="mb-6" />
-
-      <GlassCard className="max-w-2xl w-full">
-        {/* Mobile: Stack vertically, Desktop: Side by side */}
-        <div className="flex flex-col md:flex-row items-center md:items-start gap-6 md:gap-0 md:justify-between mb-8">
-          {/* Join Instructions - Different for Host/Display vs Players */}
-          <div className="flex-shrink-0 w-full md:w-auto text-center">
-            {(isHost || isDisplayMode) ? (
-              // Host and Display mode see QR code
-              <>
-                <div className="w-40 h-40 sm:w-48 sm:h-48 md:w-32 md:h-32 bg-white rounded-2xl flex items-center justify-center mb-2 mx-auto p-2 sm:p-3 md:p-2">
-                  <QRCodeSVG
-                    value={joinUrl}
-                    size={128}
-                    level="M"
-                    className="w-full h-full"
-                  />
-                </div>
-                <p className="text-sm text-center text-white/60">امسح الكود للانضمام</p>
-                <p className="text-2xl sm:text-3xl md:text-lg font-bold text-center mt-2">{game.code}</p>
-              </>
-            ) : (
-              // Players see instructions only
-              <div className="mb-4">
-                <div className="inline-flex items-center justify-center w-16 h-16 sm:w-20 sm:h-20 bg-gradient-to-br from-primary-main to-primary-dark rounded-2xl mb-3">
-                  <span className="text-3xl sm:text-4xl">📱</span>
-                </div>
-                <p className="text-sm sm:text-base text-white/80 mb-1">
-                  للانضمام للعبة:
-                </p>
-                <p className="text-xs sm:text-sm text-white/60 mb-3">
-                  افتح الكاميرا وامسح الكود
-                </p>
-                <p className="text-xs sm:text-sm text-white/60">
-                  أو أدخل الكود يدوياً:
-                </p>
-                <div className="glass rounded-2xl px-6 py-4 inline-block mt-3">
-                  <p className="text-3xl sm:text-4xl md:text-2xl font-bold tracking-wider">{game.code}</p>
-                </div>
-              </div>
-            )}
-          </div>
-
-          {/* Player List */}
-          <div className="flex-1 w-full md:mr-8">
-            <div className="flex flex-col sm:flex-row items-center justify-center gap-2 sm:gap-3 mb-6">
-              <h2 className="text-xl sm:text-2xl font-bold">اللاعبين المنضمين</h2>
-              <div className="flex items-center gap-2">
-                <div
-                  className={`w-3 h-3 rounded-full ${
-                    isConnected ? 'bg-green-400 animate-pulse' : 'bg-red-400'
-                  }`}
-                ></div>
-                <span className="text-sm text-white/60">
-                  {isConnected ? 'متصل' : 'غير متصل'}
-                </span>
-              </div>
-            </div>
-
-            <div className="space-y-3 max-h-96 overflow-y-auto">
-              {players.map((player) => (
-                <div
-                  key={player.id}
-                  className="flex items-center gap-3 sm:gap-4 glass rounded-2xl p-3 sm:p-4"
-                >
-                  <PlayerAvatar
-                    name={player.user_name}
-                    color={player.avatar_color}
-                    isHost={player.is_host}
-                    size="md"
-                  />
-                  <div className="flex-1 min-w-0">
-                    <p className="font-bold text-base sm:text-lg truncate">{player.user_name}</p>
-                    {player.is_host && (
-                      <p className="text-xs sm:text-sm text-yellow-400">المضيف</p>
-                    )}
-                  </div>
-                  <div
-                    className={`w-3 h-3 rounded-full flex-shrink-0 ${
-                      player.connection_status === 'connected'
-                        ? 'bg-green-400'
-                        : 'bg-gray-400'
-                    }`}
-                  ></div>
-                </div>
-              ))}
-            </div>
-
-            <p className="text-center mt-4 text-white/60">
-              {players.length} / {game.max_players} لاعبين
-            </p>
+    <div className="min-h-screen flex flex-col items-center justify-center p-4">
+      <GlassCard className="max-w-sm w-full text-center">
+        {/* Game Code */}
+        <div className="mb-6">
+          <p className="text-xs text-white/50 mb-1">كود اللعبة</p>
+          <div className="glass rounded-xl px-4 py-2 inline-block">
+            <p className="text-2xl font-bold tracking-wider">{game.code}</p>
           </div>
         </div>
 
-        {!isDisplayMode && (
-          <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
-            <LeaveGameButton
-              variant="danger"
-              size="lg"
-              className="flex-1 w-full sm:w-auto"
-            />
-
-            {isHost && (
-              <GradientButton
-                variant="pink"
-                onClick={handleStartGame}
-                className="flex-1 w-full sm:w-auto"
-                disabled={players.length < GAME_CONFIG.MIN_PLAYERS}
-              >
-                بدأ اللعبة
-              </GradientButton>
-            )}
+        {/* Player Count */}
+        <div className="mb-6">
+          <div className="flex items-center justify-center gap-2 mb-2">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+            <span className="text-sm">{isConnected ? 'متصل' : 'غير متصل'}</span>
           </div>
-        )}
+          <p className="text-lg">
+            <span className="font-bold text-2xl">{players.length}</span>
+            <span className="text-white/60"> / {game.max_players} لاعبين</span>
+          </p>
+        </div>
 
-        {isDisplayMode && (
+        {/* Simple Player List */}
+        <div className="mb-6 max-h-40 overflow-y-auto">
+          <div className="space-y-1">
+            {players.map((player) => {
+              const isYou = player.id === currentPlayer.id;
+              const isCaptain = player.id === game.phase_captain_id;
+              return (
+                <div
+                  key={player.id}
+                  className={`px-3 py-2 rounded-lg text-sm ${
+                    isCaptain ? 'bg-yellow-500/20 border border-yellow-500/30' : 'bg-white/5'
+                  }`}
+                >
+                  {isCaptain && <span className="mr-1">👑</span>}
+                  {player.user_name}
+                  {isYou && <span className="text-white/50 mr-1">(أنت)</span>}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* Actions */}
+        {isPhaseCaptain ? (
           <div className="space-y-3">
-            <div className="text-center p-4 bg-secondary-main/20 border border-secondary-main/50 rounded-2xl">
-              <p className="text-sm sm:text-base">
-                📺 وضع العرض - امسح رمز QR من هاتفك للانضمام كمضيف
-              </p>
-            </div>
             <GradientButton
               variant="pink"
               onClick={handleStartGame}
@@ -234,8 +121,21 @@ export const Lobby: React.FC = () => {
             >
               بدأ اللعبة
             </GradientButton>
+            {players.length < GAME_CONFIG.MIN_PLAYERS && (
+              <p className="text-xs text-white/50">
+                تحتاج {GAME_CONFIG.MIN_PLAYERS} لاعبين على الأقل
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="p-3 glass rounded-xl">
+            <p className="text-sm text-white/70">في انتظار قائد اللعبة...</p>
           </div>
         )}
+
+        <div className="mt-4">
+          <LeaveGameButton variant="secondary" size="sm" className="w-full" />
+        </div>
       </GlassCard>
     </div>
   );

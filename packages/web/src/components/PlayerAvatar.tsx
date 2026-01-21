@@ -5,7 +5,7 @@ interface PlayerAvatarProps {
   name: string;
   color: string;
   size?: 'sm' | 'md' | 'lg';
-  isHost?: boolean;
+  isPhaseCaptain?: boolean;
   className?: string;
 }
 
@@ -13,7 +13,7 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
   name,
   color,
   size = 'md',
-  isHost = false,
+  isPhaseCaptain = false,
   className = '',
 }) => {
   const sizeClasses = {
@@ -32,9 +32,9 @@ export const PlayerAvatar: React.FC<PlayerAvatarProps> = ({
       >
         {initials}
       </div>
-      {isHost && (
+      {isPhaseCaptain && (
         <div className="absolute -top-1 -right-1 w-5 h-5 bg-yellow-400 rounded-full flex items-center justify-center text-xs">
-          ⭐
+          👑
         </div>
       )}
     </div>

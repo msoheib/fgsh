@@ -12,6 +12,7 @@
   "dependencies": {
     "@fgsh/shared": "*",
     "@supabase/supabase-js": "^2.76.1",
+    "canvas-confetti": "^1.9.4",
     "framer-motion": "^10.16.0",
     "qrcode.react": "^3.1.0",
     "react": "^18.2.0",
@@ -21,6 +22,7 @@
     "zustand": "^4.4.0"
   },
   "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
     "@types/node": "^20.8.0",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",

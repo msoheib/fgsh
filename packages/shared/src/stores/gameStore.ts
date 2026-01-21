@@ -103,7 +103,6 @@ interface GameState {
   gameCode: string | null;
   players: Player[];
   currentPlayer: Player | null;
-  isHost: boolean;
   isPhaseCaptain: boolean; // Whether current player is responsible for phase transitions
   isDisplayMode: boolean; // TV display-only mode (no player participation)
 
@@ -138,7 +137,6 @@ export const useGameStore = create<GameState>((set, get) => ({
   gameCode: null,
   players: [],
   currentPlayer: null,
-  isHost: false,
   isPhaseCaptain: false,
   isDisplayMode: false,
   isConnected: false,
@@ -150,9 +148,9 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Create new game
   createGame: async (hostName: string, settings: GameSettings) => {
-    // End old game if user was host and game is still active
+    // End old game if user was phase captain and game is still active
     const oldSession = getGameSession();
-    if (oldSession && oldSession.isHost) {
+    if (oldSession && oldSession.isPhaseCaptain) {
       try {
         const oldGame = await GameService.getGame(oldSession.gameId);
         if (oldGame && oldGame.status !== 'finished') {
@@ -175,8 +173,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         game,
         gameCode: game.code,
         currentPlayer: player,
-        isHost: true,
-        isPhaseCaptain: true, // Host starts as phase captain
+        isPhaseCaptain: true, // Creator starts as phase captain
         players: [player],
         isLoading: false,
         rehydrationAttempted: true, // Fresh session - skip rehydrate guard
@@ -447,7 +444,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       {
         id: player.id,
         nickname: player.user_name,
-        is_host: true
       }
       );
 
@@ -457,7 +453,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         gameCode: game.code,
         playerId: player.id,
         playerName: player.user_name,
-        isHost: true,
         isPhaseCaptain: true,
         joinedAt: Date.now(),
       });
@@ -480,7 +475,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         game,
         gameCode: game.code,
         currentPlayer: null, // No player in display mode
-        isHost: false,
         isPhaseCaptain: false,
         isDisplayMode: true, // Flag for display-only mode
         players: [],
@@ -639,7 +633,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       saveGameSession({
         gameId: game.id,
         playerId: null, // No player in display mode
-        isHost: false,
         isDisplayMode: true,
       });
 
@@ -683,7 +676,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         game,
         gameCode: game.code,
         currentPlayer: player,
-        isHost: false,
         isPhaseCaptain,
         players,
         isLoading: false,
@@ -953,7 +945,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       {
         id: player.id,
         nickname: player.user_name,
-        is_host: false
       }
       );
 
@@ -1021,7 +1012,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         gameCode: game.code,
         playerId: player.id,
         playerName: player.user_name,
-        isHost: player.is_host,
         isPhaseCaptain,
         joinedAt: Date.now(),
       });
@@ -1104,7 +1094,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         gameCode: game.code,
         currentPlayer,
         players,
-        isHost: currentPlayer.is_host,
         isPhaseCaptain,
         isLoading: false,
         rehydrationAttempted: true,
@@ -1253,7 +1242,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       {
         id: currentPlayer.id,
         nickname: currentPlayer.user_name,
-        is_host: currentPlayer.is_host
       }
       );
 
@@ -1342,7 +1330,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Leave game
   leaveGame: async () => {
-    const { game, currentPlayer, isHost, isDisplayMode } = get();
+    const { game, currentPlayer, isPhaseCaptain, isDisplayMode } = get();
 
     if (!game) {
       clearGameSession();
@@ -1350,13 +1338,13 @@ export const useGameStore = create<GameState>((set, get) => ({
       return;
     }
 
-    // Host or display mode: end the game for everyone
-    if (isHost || isDisplayMode) {
+    // Display mode or phase captain: end the game for everyone
+    if (isDisplayMode || isPhaseCaptain) {
       try {
-        console.log('🔚 Host/Display leaving - ending game for all players');
+        console.log('🔚 Display/Captain leaving - ending game for all players');
         await GameService.endGame(game.id);
       } catch (err) {
-        console.error('Failed to end game when host/display left:', err);
+        console.error('Failed to end game when display/captain left:', err);
       }
     }
 
@@ -1495,7 +1483,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       gameCode: null,
       players: [],
       currentPlayer: null,
-      isHost: false,
       isPhaseCaptain: false,
       isDisplayMode: false,
       isConnected: false,

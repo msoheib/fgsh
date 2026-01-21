@@ -23,7 +23,6 @@ export interface Player {
   user_name: string;
   avatar_color: string;
   score: number;
-  is_host: boolean;
   connection_status: PlayerConnectionStatus;
   joined_at: string;
 }

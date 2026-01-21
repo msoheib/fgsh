@@ -8,7 +8,6 @@ export interface GameSession {
   gameCode?: string;
   playerId: string | null; // Null for display mode
   playerName?: string;
-  isHost: boolean;
   isPhaseCaptain?: boolean;
   isDisplayMode?: boolean; // True for TV display-only mode
   joinedAt?: number; // Timestamp for session expiry

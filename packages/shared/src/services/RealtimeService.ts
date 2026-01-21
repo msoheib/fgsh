@@ -14,7 +14,6 @@ export interface PresenceState {
   user_id: string;
   player_id: string;
   nickname: string;
-  is_host: boolean;
   online_at: string;
   last_seen?: number;
 }
@@ -82,7 +81,7 @@ export class RealtimeService {
   static subscribeToGame(
     gameId: string,
     callbacks: GameEventCallbacks,
-    currentPlayer?: { id: string; nickname: string; is_host: boolean }
+    currentPlayer?: { id: string; nickname: string }
   ): () => void {
     const supabase = getSupabase();
     const channelName = `game:${gameId}`;
@@ -349,7 +348,6 @@ export class RealtimeService {
               user_id: currentPlayer.id,
               player_id: currentPlayer.id,
               nickname: currentPlayer.nickname,
-              is_host: currentPlayer.is_host,
               online_at: new Date().toISOString(),
             };
 
@@ -399,7 +397,7 @@ export class RealtimeService {
   private static handleConnectionFailure(
     gameId: string,
     callbacks: GameEventCallbacks,
-    currentPlayer?: { id: string; nickname: string; is_host: boolean }
+    currentPlayer?: { id: string; nickname: string }
   ): void {
     const retryCount = this.retryAttempts.get(gameId) || 0;
     const delay = Math.min(
@@ -524,7 +522,7 @@ export class RealtimeService {
    */
   static retryNow(
     gameId: string,
-    currentPlayer?: { id: string; nickname: string; is_host: boolean }
+    currentPlayer?: { id: string; nickname: string }
   ): boolean {
     const callbacks = this.storedCallbacks.get(gameId);
     if (!callbacks) {

@@ -15,6 +15,9 @@ import { Results } from './pages/Results';
 import { PaymentCallback } from './pages/PaymentCallback';
 import { Profile } from './pages/Profile';
 import { Admin } from './pages/Admin';
+import { TVLobby } from './pages/TVLobby';
+import { TVGame } from './pages/TVGame';
+import { TVResults } from './pages/TVResults';
 
 // Components
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -47,15 +50,16 @@ function AppContent() {
       .then((success) => {
         if (success) {
           // Get the freshly rehydrated game state
-          const game = useGameStore.getState().game;
+          const { game, isDisplayMode } = useGameStore.getState();
           if (game) {
-            // Navigate based on game status
+            // Navigate based on game status and display mode
+            const prefix = isDisplayMode ? '/tv' : '';
             if (game.status === 'waiting') {
-              navigate('/lobby', { replace: true });
+              navigate(`${prefix}/lobby`, { replace: true });
             } else if (game.status === 'playing') {
-              navigate('/game', { replace: true });
+              navigate(`${prefix}/game`, { replace: true });
             } else if (game.status === 'finished') {
-              navigate('/results', { replace: true });
+              navigate(`${prefix}/results`, { replace: true });
             }
           }
         }
@@ -103,6 +107,11 @@ function AppContent() {
         <Route path="/game/:code" element={<GameDeepLink />} />
         <Route path="/game" element={<Game />} />
         <Route path="/results" element={<Results />} />
+
+        {/* TV Display routes */}
+        <Route path="/tv/lobby" element={<TVLobby />} />
+        <Route path="/tv/game" element={<TVGame />} />
+        <Route path="/tv/results" element={<TVResults />} />
 
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>
