@@ -1,11 +1,8 @@
 import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GlassCard } from '../components/GlassCard';
-import { GradientButton } from '../components/GradientButton';
-import { LeaveGameButton } from '../components/LeaveGameButton';
 import { useGameStore, useRoundStore, GAME_CONFIG } from '@fakash/shared';
 
-// Minimal player input screen - no animations, focused on fast input
+// Ultra-minimal player input screen - zero animations for lowest latency
 export const Game: React.FC = () => {
   const navigate = useNavigate();
   const { game, currentPlayer, isPhaseCaptain, isDisplayMode, rehydrationAttempted } = useGameStore();
@@ -196,40 +193,46 @@ export const Game: React.FC = () => {
     })();
   }, [game, roundStatus]);
 
-  // Loading states
+  // Loading states - static, no animation
   if (!game || !currentPlayer) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <div className="text-center">
-          <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
-          <p className="text-white/60">جارٍ التحميل...</p>
-        </div>
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
+        <p className="text-white/60">جارٍ التحميل...</p>
       </div>
     );
   }
 
   if (game.status === 'waiting') {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
-        <GlassCard className="text-center max-w-sm">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
+        <div className="bg-white/10 backdrop-blur rounded-2xl p-6 text-center max-w-xs w-full">
           <p className="text-lg mb-4">اللعبة لم تبدأ بعد</p>
-          <GradientButton variant="purple" onClick={() => navigate('/lobby')} className="w-full mb-3">
+          <button
+            onClick={() => navigate('/lobby')}
+            className="w-full py-3 mb-2 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 font-bold"
+          >
             العودة للردهة
-          </GradientButton>
-          <LeaveGameButton variant="secondary" size="md" />
-        </GlassCard>
+          </button>
+          <button
+            onClick={() => {
+              useGameStore.getState().leaveGame();
+              navigate('/');
+            }}
+            className="w-full py-2 rounded-xl bg-white/10 text-sm"
+          >
+            مغادرة اللعبة
+          </button>
+        </div>
       </div>
     );
   }
 
   if (!currentRound || !question) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-4">
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
         <div className="text-center">
-          <div className="w-10 h-10 border-4 border-white border-t-transparent rounded-full animate-spin mx-auto mb-4"></div>
           <p className="text-white/60">جارٍ تحميل الجولة...</p>
-          {isRecovering && <p className="text-xs text-white/40 mt-2">استعادة الحالة...</p>}
-          <LeaveGameButton variant="secondary" size="sm" className="mt-4" />
+          {isRecovering && <p className="text-xs text-white/40 mt-2">استعادة...</p>}
         </div>
       </div>
     );
@@ -288,27 +291,20 @@ export const Game: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
-      {/* Leave button */}
-      <div className="absolute top-4 right-4">
-        <LeaveGameButton variant="secondary" size="sm" />
-      </div>
-
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-primary">
       {/* Minimal header */}
-      <div className="text-center mb-4">
-        <p className="text-xs text-white/50">
-          الجولة {currentRound.round_number}/{game.round_count}
-          {isPhaseCaptain && ' • 👑 قائد'}
-        </p>
-      </div>
+      <p className="text-xs text-white/40 mb-3">
+        الجولة {currentRound.round_number}/{game.round_count}
+        {isPhaseCaptain && ' • 👑'}
+      </p>
 
-      <GlassCard className="max-w-sm w-full">
+      <div className="bg-white/10 backdrop-blur rounded-2xl p-4 max-w-xs w-full">
         {/* ANSWERING PHASE */}
         {roundStatus === 'answering' && (
           <div>
-            <div className="mb-4 p-3 bg-white/5 rounded-xl">
-              <p className="text-base font-bold text-center">{question.question_text}</p>
-            </div>
+            <p className="text-base font-bold text-center mb-4 p-3 bg-white/5 rounded-xl">
+              {question.question_text}
+            </p>
 
             {!hasSubmittedAnswer ? (
               <>
@@ -316,25 +312,24 @@ export const Game: React.FC = () => {
                   type="text"
                   value={answerInput}
                   onChange={(e) => setAnswerInput(e.target.value)}
-                  placeholder="اكتب إجابتك..."
-                  className="input-glass text-base mb-3"
+                  placeholder="اكتب كذبتك..."
+                  className="w-full p-3 mb-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-pink-500"
                   maxLength={GAME_CONFIG.MAX_ANSWER_LENGTH}
                   onKeyPress={(e) => e.key === 'Enter' && handleSubmitAnswer()}
                   autoFocus
                 />
-                <GradientButton
-                  variant="pink"
+                <button
                   onClick={handleSubmitAnswer}
-                  className="w-full"
                   disabled={!answerInput.trim()}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50"
                 >
                   إرسال
-                </GradientButton>
+                </button>
               </>
             ) : (
-              <div className="text-center py-6">
+              <div className="text-center py-4">
                 <p className="text-lg">✅ تم الإرسال</p>
-                <p className="text-xs text-white/50 mt-2">تابع على الشاشة الرئيسية</p>
+                <p className="text-xs text-white/50 mt-1">تابع على الشاشة</p>
               </div>
             )}
           </div>
@@ -343,7 +338,7 @@ export const Game: React.FC = () => {
         {/* VOTING PHASE */}
         {roundStatus === 'voting' && (
           <div>
-            <p className="text-center text-sm mb-3 text-white/70">اختر الإجابة الصحيحة</p>
+            <p className="text-center text-sm mb-3 text-white/60">اختر الإجابة الصحيحة</p>
             <div className="space-y-2">
               {allAnswers.map((answer) => {
                 const isOwn = answer.player_id === currentPlayer.id;
@@ -353,16 +348,16 @@ export const Game: React.FC = () => {
                     key={answer.id}
                     onClick={() => !hasSubmittedVote && !isOwn && handleSubmitVote(answer.id)}
                     disabled={hasSubmittedVote || isOwn}
-                    className={`w-full p-3 rounded-xl text-right transition-all ${
+                    className={`w-full p-3 rounded-xl text-right ${
                       isSelected
-                        ? 'bg-secondary-main text-white'
+                        ? 'bg-cyan-500 text-white'
                         : isOwn
-                        ? 'glass opacity-40'
-                        : 'glass hover:bg-white/10'
+                        ? 'bg-white/5 opacity-40'
+                        : 'bg-white/10 active:bg-white/20'
                     }`}
                   >
                     {answer.answer_text}
-                    {isOwn && <span className="text-xs opacity-60"> (إجابتك)</span>}
+                    {isOwn && <span className="text-xs opacity-60"> (أنت)</span>}
                   </button>
                 );
               })}
@@ -376,21 +371,19 @@ export const Game: React.FC = () => {
         {/* COMPLETED PHASE */}
         {roundStatus === 'completed' && (
           <div className="text-center">
-            <div className="mb-4 p-3 bg-secondary-main/30 rounded-xl">
-              <p className="text-xs text-white/70">الإجابة الصحيحة</p>
-              <p className="text-lg font-bold">{question.correct_answer}</p>
-            </div>
+            <p className="text-lg mb-4">📺 تابع الكشف على الشاشة</p>
 
-            {isPhaseCaptain ? (
-              <GradientButton variant="pink" onClick={handleNextRound} className="w-full">
-                {isFinalRound ? 'النتائج النهائية' : 'الجولة التالية'}
-              </GradientButton>
-            ) : (
-              <p className="text-xs text-white/50">انتظر قائد اللعبة...</p>
+            {isPhaseCaptain && (
+              <button
+                onClick={handleNextRound}
+                className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold"
+              >
+                {isFinalRound ? 'النتائج' : 'التالي ➡️'}
+              </button>
             )}
           </div>
         )}
-      </GlassCard>
+      </div>
     </div>
   );
 };

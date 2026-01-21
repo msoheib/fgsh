@@ -2,7 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Logo } from '../components/Logo';
-import { useGameStore, useRoundStore } from '@fakash/shared';
+import { useGameStore, useRoundStore, RoundService } from '@fakash/shared';
 import {
   QuestionReveal,
   AnimatedCard,
@@ -101,7 +101,7 @@ const TVScoreboard: React.FC<{ players: Array<{ id: string; user_name: string; s
         animate={{ opacity: 1, y: 0 }}
         className="text-3xl font-bold text-center mb-8"
       >
-        لوحة المتصدرين
+        🏆 لوحة المتصدرين
       </motion.h3>
       <AnimatedCardContainer className="space-y-4">
         {sortedPlayers.slice(0, 5).map((player, index) => (
@@ -130,6 +130,125 @@ const TVScoreboard: React.FC<{ players: Array<{ id: string; user_name: string; s
   );
 };
 
+// Answer Reveal Card - for iterative reveal
+interface RevealAnswer {
+  id: string;
+  text: string;
+  isCorrect: boolean;
+  authorId: string | null;
+  authorName: string | null;
+  voters: Array<{ id: string; name: string }>;
+  voteCount: number;
+}
+
+const AnswerRevealCard: React.FC<{ answer: RevealAnswer; isActive: boolean }> = ({
+  answer,
+  isActive,
+}) => {
+  const confetti = useConfetti();
+
+  useEffect(() => {
+    if (isActive && answer.isCorrect && answer.voteCount > 0) {
+      confetti.burst();
+    }
+  }, [isActive, answer.isCorrect, answer.voteCount]);
+
+  if (!isActive) return null;
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, scale: 0.8, rotateX: -30 }}
+      animate={{ opacity: 1, scale: 1, rotateX: 0 }}
+      exit={{ opacity: 0, scale: 0.8 }}
+      transition={{ type: 'spring', stiffness: 200, damping: 20 }}
+      className="w-full max-w-4xl mx-auto"
+    >
+      {/* The Answer */}
+      <motion.div
+        className={`p-10 rounded-3xl text-center mb-8 ${
+          answer.isCorrect
+            ? 'bg-gradient-to-br from-green-500 to-green-600 shadow-glow-cyan'
+            : 'bg-gradient-to-br from-pink-500/80 to-purple-600/80'
+        }`}
+        initial={{ scale: 0.9 }}
+        animate={{ scale: 1 }}
+        transition={{ delay: 0.2 }}
+      >
+        <p className="text-5xl md:text-6xl font-bold mb-4">{answer.text}</p>
+        {answer.isCorrect ? (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            className="text-3xl"
+          >
+            ✅ الإجابة الصحيحة!
+          </motion.p>
+        ) : (
+          <motion.p
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.5 }}
+            className="text-3xl"
+          >
+            🎭 كذبة بواسطة: <span className="font-bold">{answer.authorName}</span>
+          </motion.p>
+        )}
+      </motion.div>
+
+      {/* Who voted for this */}
+      {answer.voteCount > 0 ? (
+        <motion.div
+          initial={{ opacity: 0, y: 30 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.8 }}
+          className="text-center"
+        >
+          <p className="text-2xl mb-4 text-white/80">
+            {answer.isCorrect ? '✅ أصابوا الإجابة:' : '😵 وقعوا في الفخ:'}
+          </p>
+          <div className="flex flex-wrap justify-center gap-4">
+            {answer.voters.map((voter, idx) => (
+              <motion.div
+                key={voter.id}
+                initial={{ opacity: 0, x: -20 }}
+                animate={{ opacity: 1, x: 0 }}
+                transition={{ delay: 1 + idx * 0.2 }}
+                className={`px-6 py-3 rounded-2xl text-xl font-bold ${
+                  answer.isCorrect
+                    ? 'bg-green-500/30 border border-green-500/50'
+                    : 'bg-red-500/30 border border-red-500/50'
+                }`}
+              >
+                {voter.name}
+              </motion.div>
+            ))}
+          </div>
+          {!answer.isCorrect && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 1.5 }}
+              className="mt-6 text-2xl text-yellow-400"
+            >
+              🎯 {answer.authorName} يكسب {answer.voteCount * 500} نقطة!
+            </motion.p>
+          )}
+        </motion.div>
+      ) : (
+        <motion.div
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.8 }}
+          className="text-center text-2xl text-white/60"
+        >
+          لم يصوت أحد لهذه الإجابة
+        </motion.div>
+      )}
+    </motion.div>
+  );
+};
+
 export const TVGame: React.FC = () => {
   const navigate = useNavigate();
   const { game, players, isDisplayMode, rehydrationAttempted } = useGameStore();
@@ -145,16 +264,58 @@ export const TVGame: React.FC = () => {
   } = useRoundStore();
 
   const [showConfetti, setShowConfetti] = useState(false);
+  const [isRevealing, setIsRevealing] = useState(false);
+  const [revealData, setRevealData] = useState<RevealAnswer[]>([]);
+  const [currentRevealIndex, setCurrentRevealIndex] = useState(0);
+  const [revealComplete, setRevealComplete] = useState(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const confetti = useConfetti();
 
-  // Show confetti when round completes
+  // Fetch reveal data when round completes
   useEffect(() => {
-    if (roundStatus === 'completed') {
-      setShowConfetti(true);
-      confetti.burst();
-      const timer = setTimeout(() => setShowConfetti(false), 5000);
-      return () => clearTimeout(timer);
+    const fetchRevealData = async () => {
+      if (roundStatus === 'completed' && currentRound && !isRevealing && !revealComplete) {
+        try {
+          const data = await RoundService.getRoundRevealData(currentRound.id);
+          setRevealData(data.answers);
+          setIsRevealing(true);
+          setCurrentRevealIndex(0);
+        } catch (err) {
+          console.error('Failed to fetch reveal data:', err);
+          setRevealComplete(true);
+        }
+      }
+    };
+    fetchRevealData();
+  }, [roundStatus, currentRound, isRevealing, revealComplete]);
+
+  // Auto-advance reveal
+  useEffect(() => {
+    if (!isRevealing || revealData.length === 0) return;
+
+    const timer = setTimeout(() => {
+      if (currentRevealIndex < revealData.length - 1) {
+        setCurrentRevealIndex((prev) => prev + 1);
+      } else {
+        // Reveal complete, show scoreboard
+        setIsRevealing(false);
+        setRevealComplete(true);
+        setShowConfetti(true);
+        confetti.celebration();
+        setTimeout(() => setShowConfetti(false), 5000);
+      }
+    }, 4000); // 4 seconds per answer
+
+    return () => clearTimeout(timer);
+  }, [isRevealing, currentRevealIndex, revealData.length]);
+
+  // Reset reveal state when round changes
+  useEffect(() => {
+    if (roundStatus === 'answering') {
+      setIsRevealing(false);
+      setRevealData([]);
+      setCurrentRevealIndex(0);
+      setRevealComplete(false);
     }
   }, [roundStatus]);
 
@@ -216,10 +377,10 @@ export const TVGame: React.FC = () => {
     };
   }, [currentRound?.id, timerActive, setTimeRemaining, setTimerActive]);
 
-  // Refresh scores when round completes
+  // Refresh scores when reveal is complete
   useEffect(() => {
     const syncScores = async () => {
-      if (!game || roundStatus !== 'completed') return;
+      if (!game || !revealComplete) return;
       try {
         const { GameService } = await import('@fakash/shared');
         const updatedPlayers = await GameService.getGamePlayers(game.id);
@@ -230,7 +391,7 @@ export const TVGame: React.FC = () => {
     };
 
     syncScores();
-  }, [game, roundStatus]);
+  }, [game, revealComplete]);
 
   if (!game || !isDisplayMode) {
     return null;
@@ -296,6 +457,15 @@ export const TVGame: React.FC = () => {
                 transition={{ duration: 0.5 }}
                 className="w-full max-w-5xl text-center"
               >
+                {/* Phase instruction */}
+                <motion.p
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-4xl font-bold text-pink-400 mb-8"
+                >
+                  🎭 اكتب كذبة مقنعة!
+                </motion.p>
+
                 <QuestionReveal question={question.question_text} size="tv" showEmoji />
 
                 <motion.div
@@ -327,6 +497,15 @@ export const TVGame: React.FC = () => {
                 transition={{ duration: 0.5 }}
                 className="w-full max-w-5xl"
               >
+                {/* Phase instruction */}
+                <motion.p
+                  initial={{ opacity: 0, y: -20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  className="text-4xl font-bold text-cyan-400 mb-8 text-center"
+                >
+                  🗳️ صوّت للإجابة الصحيحة!
+                </motion.p>
+
                 <QuestionReveal question={question.question_text} size="large" />
 
                 <motion.div
@@ -336,7 +515,7 @@ export const TVGame: React.FC = () => {
                   className="mt-12"
                 >
                   <h3 className="text-3xl font-bold text-center mb-8">
-                    الإجابات المقدمة - صوّت للصحيحة!
+                    الإجابات المقدمة
                   </h3>
                   <AnimatedCardContainer className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     {allAnswers.map((answer, index) => (
@@ -353,8 +532,34 @@ export const TVGame: React.FC = () => {
               </motion.div>
             )}
 
-            {/* Completed Phase */}
-            {roundStatus === 'completed' && (
+            {/* Revealing Phase - Iterative answer reveal */}
+            {roundStatus === 'completed' && isRevealing && revealData.length > 0 && (
+              <motion.div
+                key="revealing"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                className="w-full"
+              >
+                {/* Progress indicator */}
+                <motion.div className="text-center mb-8">
+                  <p className="text-2xl text-white/60">
+                    الإجابة {currentRevealIndex + 1} من {revealData.length}
+                  </p>
+                </motion.div>
+
+                <AnimatePresence mode="wait">
+                  <AnswerRevealCard
+                    key={revealData[currentRevealIndex].id}
+                    answer={revealData[currentRevealIndex]}
+                    isActive={true}
+                  />
+                </AnimatePresence>
+              </motion.div>
+            )}
+
+            {/* Completed Phase - Scoreboard */}
+            {roundStatus === 'completed' && revealComplete && (
               <motion.div
                 key="completed"
                 initial={{ opacity: 0, scale: 0.9 }}
@@ -363,19 +568,6 @@ export const TVGame: React.FC = () => {
                 transition={{ duration: 0.5 }}
                 className="w-full max-w-5xl"
               >
-                {/* Correct Answer Reveal */}
-                <motion.div
-                  initial={{ scale: 0.5, opacity: 0, rotateY: -90 }}
-                  animate={{ scale: 1, opacity: 1, rotateY: 0 }}
-                  transition={{ type: 'spring', stiffness: 200, damping: 15 }}
-                  className="mb-12 p-10 bg-gradient-to-br from-secondary-main to-secondary-light rounded-3xl text-center shadow-glow-cyan"
-                >
-                  <p className="text-2xl mb-4 text-white/80">الإجابة الصحيحة</p>
-                  <p className="text-5xl md:text-6xl font-bold">
-                    {question.correct_answer}
-                  </p>
-                </motion.div>
-
                 {/* Scoreboard */}
                 <TVScoreboard players={players} />
 

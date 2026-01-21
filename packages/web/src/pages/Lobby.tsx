@@ -1,11 +1,8 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GlassCard } from '../components/GlassCard';
-import { GradientButton } from '../components/GradientButton';
-import { LeaveGameButton } from '../components/LeaveGameButton';
 import { useGameStore, GAME_CONFIG } from '@fakash/shared';
 
-// Minimal player lobby - no animations, just waiting status
+// Ultra-minimal player lobby - just waiting message and game code
 export const Lobby: React.FC = () => {
   const navigate = useNavigate();
   const { game, players, currentPlayer, isPhaseCaptain, isDisplayMode, startGame, isConnected } = useGameStore();
@@ -66,77 +63,59 @@ export const Lobby: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4">
-      <GlassCard className="max-w-sm w-full text-center">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-primary">
+      <div className="bg-white/10 backdrop-blur rounded-2xl p-6 max-w-xs w-full text-center">
         {/* Game Code */}
-        <div className="mb-6">
-          <p className="text-xs text-white/50 mb-1">كود اللعبة</p>
-          <div className="glass rounded-xl px-4 py-2 inline-block">
-            <p className="text-2xl font-bold tracking-wider">{game.code}</p>
-          </div>
+        <p className="text-xs text-white/50 mb-1">كود اللعبة</p>
+        <p className="text-3xl font-bold tracking-wider mb-4 p-3 bg-white/10 rounded-xl inline-block">
+          {game.code}
+        </p>
+
+        {/* Connection status */}
+        <div className="flex items-center justify-center gap-2 mb-4">
+          <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
+          <span className="text-sm">{isConnected ? 'متصل' : 'غير متصل'}</span>
         </div>
 
         {/* Player Count */}
-        <div className="mb-6">
-          <div className="flex items-center justify-center gap-2 mb-2">
-            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-400' : 'bg-red-400'}`}></div>
-            <span className="text-sm">{isConnected ? 'متصل' : 'غير متصل'}</span>
-          </div>
-          <p className="text-lg">
-            <span className="font-bold text-2xl">{players.length}</span>
-            <span className="text-white/60"> / {game.max_players} لاعبين</span>
-          </p>
-        </div>
-
-        {/* Simple Player List */}
-        <div className="mb-6 max-h-40 overflow-y-auto">
-          <div className="space-y-1">
-            {players.map((player) => {
-              const isYou = player.id === currentPlayer.id;
-              const isCaptain = player.id === game.phase_captain_id;
-              return (
-                <div
-                  key={player.id}
-                  className={`px-3 py-2 rounded-lg text-sm ${
-                    isCaptain ? 'bg-yellow-500/20 border border-yellow-500/30' : 'bg-white/5'
-                  }`}
-                >
-                  {isCaptain && <span className="mr-1">👑</span>}
-                  {player.user_name}
-                  {isYou && <span className="text-white/50 mr-1">(أنت)</span>}
-                </div>
-              );
-            })}
-          </div>
-        </div>
+        <p className="text-lg mb-4">
+          <span className="font-bold text-2xl">{players.length}</span>
+          <span className="text-white/60"> / {game.max_players} لاعبين</span>
+        </p>
 
         {/* Actions */}
         {isPhaseCaptain ? (
-          <div className="space-y-3">
-            <GradientButton
-              variant="pink"
+          <div>
+            <button
               onClick={handleStartGame}
-              className="w-full"
               disabled={players.length < GAME_CONFIG.MIN_PLAYERS}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50"
             >
               بدأ اللعبة
-            </GradientButton>
+            </button>
             {players.length < GAME_CONFIG.MIN_PLAYERS && (
-              <p className="text-xs text-white/50">
-                تحتاج {GAME_CONFIG.MIN_PLAYERS} لاعبين على الأقل
+              <p className="text-xs text-white/50 mt-2">
+                تحتاج {GAME_CONFIG.MIN_PLAYERS} لاعبين
               </p>
             )}
           </div>
         ) : (
-          <div className="p-3 glass rounded-xl">
-            <p className="text-sm text-white/70">في انتظار قائد اللعبة...</p>
-          </div>
+          <p className="text-sm text-white/60 p-3 bg-white/5 rounded-xl">
+            في انتظار بدء اللعبة...
+          </p>
         )}
 
-        <div className="mt-4">
-          <LeaveGameButton variant="secondary" size="sm" className="w-full" />
-        </div>
-      </GlassCard>
+        {/* Leave */}
+        <button
+          onClick={() => {
+            useGameStore.getState().leaveGame();
+            navigate('/');
+          }}
+          className="mt-4 w-full py-2 rounded-xl bg-white/10 text-sm"
+        >
+          مغادرة
+        </button>
+      </div>
     </div>
   );
 };
