@@ -43,6 +43,17 @@ function AppContent() {
     // Check auth session
     checkSession();
 
+    // If user is trying to join a new game, clear any old session and skip rehydration
+    const currentPath = window.location.pathname;
+    if (currentPath === '/join' || currentPath.startsWith('/join?')) {
+      console.log('🎯 User is on join page - clearing old session');
+      const { clearGameSession } = require('@fakash/shared');
+      clearGameSession();
+      useGameStore.setState({ rehydrationAttempted: true });
+      setIsRehydrating(false);
+      return;
+    }
+
     // Attempt to rehydrate session from localStorage
     const rehydrateSession = useGameStore.getState().rehydrateSession;
 
