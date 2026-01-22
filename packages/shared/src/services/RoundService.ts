@@ -285,6 +285,79 @@ export class RoundService {
   }
 
   /**
+   * Get complete reveal data for a round - answers with their voters
+   * Used for Fibbage-style iterative answer reveal
+   */
+  static async getRoundRevealData(roundId: string): Promise<{
+    answers: Array<{
+      id: string;
+      text: string;
+      isCorrect: boolean;
+      authorId: string | null;
+      authorName: string | null;
+      voters: Array<{ id: string; name: string }>;
+      voteCount: number;
+    }>;
+  }> {
+    const supabase = getSupabase();
+
+    // Fetch answers with player info
+    const { data: answers, error: answersError } = await supabase
+      .from('player_answers')
+      .select('id, answer_text, is_correct, player_id, player:players(id, user_name)')
+      .eq('round_id', roundId);
+
+    if (answersError) {
+      throw new GameError(ErrorType.CONNECTION_LOST, answersError.message);
+    }
+
+    // Fetch votes with voter info
+    const { data: votes, error: votesError } = await supabase
+      .from('votes')
+      .select('answer_id, voter_id, voter:players!votes_voter_id_fkey(id, user_name)')
+      .eq('round_id', roundId);
+
+    if (votesError) {
+      throw new GameError(ErrorType.CONNECTION_LOST, votesError.message);
+    }
+
+    // Group votes by answer_id
+    const votesByAnswer = new Map<string, Array<{ id: string; name: string }>>();
+    for (const vote of votes || []) {
+      const ansId = vote.answer_id;
+      if (!votesByAnswer.has(ansId)) {
+        votesByAnswer.set(ansId, []);
+      }
+      if (vote.voter) {
+        votesByAnswer.get(ansId)!.push({
+          id: (vote.voter as any).id,
+          name: (vote.voter as any).user_name,
+        });
+      }
+    }
+
+    // Build reveal data
+    const revealAnswers = (answers || []).map((ans) => ({
+      id: ans.id,
+      text: ans.answer_text,
+      isCorrect: ans.is_correct,
+      authorId: ans.player_id,
+      authorName: ans.player ? (ans.player as any).user_name : null,
+      voters: votesByAnswer.get(ans.id) || [],
+      voteCount: (votesByAnswer.get(ans.id) || []).length,
+    }));
+
+    // Sort: lies with votes first, then correct answer last
+    revealAnswers.sort((a, b) => {
+      if (a.isCorrect && !b.isCorrect) return 1;
+      if (!a.isCorrect && b.isCorrect) return -1;
+      return b.voteCount - a.voteCount; // More votes first
+    });
+
+    return { answers: revealAnswers };
+  }
+
+  /**
    * Update round status
    */
   static async updateRoundStatus(
