@@ -269,17 +269,31 @@ export const TVGame: React.FC = () => {
   const [currentRevealIndex, setCurrentRevealIndex] = useState(0);
   const [revealComplete, setRevealComplete] = useState(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const revealForRoundIdRef = useRef<string | null>(null); // Track which round reveal is for
   const confetti = useConfetti();
 
   // Fetch reveal data when round completes
   useEffect(() => {
     const fetchRevealData = async () => {
-      if (roundStatus === 'completed' && currentRound && !isRevealing && !revealComplete) {
+      // Only fetch if:
+      // 1. Round status is completed
+      // 2. We have a currentRound
+      // 3. We haven't started revealing for THIS round yet
+      // 4. This is a different round than what we already revealed for
+      if (
+        roundStatus === 'completed' && 
+        currentRound && 
+        !isRevealing && 
+        revealForRoundIdRef.current !== currentRound.id
+      ) {
         try {
+          console.log('🎭 Starting reveal for round:', currentRound.id);
+          revealForRoundIdRef.current = currentRound.id;
           const data = await RoundService.getRoundRevealData(currentRound.id);
           setRevealData(data.answers);
           setIsRevealing(true);
           setCurrentRevealIndex(0);
+          setRevealComplete(false);
         } catch (err) {
           console.error('Failed to fetch reveal data:', err);
           setRevealComplete(true);
@@ -287,7 +301,7 @@ export const TVGame: React.FC = () => {
       }
     };
     fetchRevealData();
-  }, [roundStatus, currentRound, isRevealing, revealComplete]);
+  }, [roundStatus, currentRound?.id, isRevealing]);
 
   // Auto-advance reveal
   useEffect(() => {
@@ -309,15 +323,18 @@ export const TVGame: React.FC = () => {
     return () => clearTimeout(timer);
   }, [isRevealing, currentRevealIndex, revealData.length]);
 
-  // Reset reveal state when round changes
+  // Reset reveal state when NEW round starts (round ID changes)
   useEffect(() => {
-    if (roundStatus === 'answering') {
+    if (currentRound && revealForRoundIdRef.current !== currentRound.id) {
+      // New round detected - reset reveal state
+      console.log('🔄 New round detected, resetting reveal state');
       setIsRevealing(false);
       setRevealData([]);
       setCurrentRevealIndex(0);
       setRevealComplete(false);
+      // Note: revealForRoundIdRef will be set when completed phase triggers reveal
     }
-  }, [roundStatus]);
+  }, [currentRound?.id]);
 
   // Redirect non-display mode to regular game
   useEffect(() => {
