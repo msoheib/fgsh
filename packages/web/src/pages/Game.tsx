@@ -325,7 +325,20 @@ export const Game: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-primary">
+    <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-primary relative">
+      {/* Leave button - top left */}
+      <button
+        onClick={() => {
+          if (window.confirm('هل أنت متأكد أنك تريد مغادرة اللعبة؟')) {
+            useGameStore.getState().leaveGame();
+            navigate('/');
+          }
+        }}
+        className="absolute top-4 left-4 px-3 py-2 text-xs bg-red-500/80 hover:bg-red-600 rounded-xl text-white"
+      >
+        مغادرة
+      </button>
+
       {/* Minimal header */}
       <p className="text-xs text-white/40 mb-3">
         الجولة {currentRound.round_number}/{game.round_count}

@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { Logo } from '../components/Logo';
 import { PlayerAvatar } from '../components/PlayerAvatar';
+import { EndRoomButton } from '../components/EndRoomButton';
 import { useGameStore, GAME_CONFIG } from '@fakash/shared';
 import { AnimatedCard, AnimatedCardContainer } from '../components/animations';
 
@@ -61,7 +62,12 @@ export const TVLobby: React.FC = () => {
   const canStart = players.length >= GAME_CONFIG.MIN_PLAYERS;
 
   return (
-    <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-primary">
+    <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-primary relative">
+      {/* End Room Button */}
+      <div className="absolute top-6 left-6">
+        <EndRoomButton size="md" />
+      </div>
+
       <Logo size="lg" className="mb-8" />
 
       <motion.div

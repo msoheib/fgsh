@@ -2,6 +2,7 @@ import React, { useEffect, useState, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Logo } from '../components/Logo';
+import { EndRoomButton } from '../components/EndRoomButton';
 import { useGameStore, useRoundStore, RoundService } from '@fakash/shared';
 import {
   QuestionReveal,
@@ -444,7 +445,10 @@ export const TVGame: React.FC = () => {
       <div className="relative z-10 p-8 flex flex-col min-h-screen">
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
-          <Logo size="md" />
+          <div className="flex items-center gap-4">
+            <Logo size="md" />
+            <EndRoomButton size="sm" />
+          </div>
           <div className="glass rounded-2xl px-6 py-3">
             <span className="text-2xl font-bold">
               الجولة {currentRound.round_number} / {game.round_count}
