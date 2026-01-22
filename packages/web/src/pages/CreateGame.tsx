@@ -4,7 +4,7 @@ import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { useGameStore, GAME_CONFIG, useAuthStore, PaymentService } from '@fakash/shared';
+import { useGameStore, GAME_CONFIG, useAuthStore, PaymentService, clearGameSession } from '@fakash/shared';
 import { AuthModal } from '../components/auth';
 import { UpgradeModal } from '../components/payment';
 
@@ -53,6 +53,9 @@ export const CreateGame: React.FC = () => {
     setIsCheckingEntitlement(false);
 
     try {
+      // Clear any old game session first to prevent flickering
+      clearGameSession();
+      
       // Always create in TV Display Mode
       await createGameAsDisplay({
         roundCount,
