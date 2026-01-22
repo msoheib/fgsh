@@ -58,12 +58,21 @@ export function getGameSession(): GameSession | null {
 }
 
 /**
- * Clear game session from localStorage
+ * Clear game session from localStorage and cleanup realtime subscriptions
  */
 export function clearGameSession(): void {
   try {
     localStorage.removeItem(SESSION_KEY);
     console.log('🗑️ Game session cleared from localStorage');
+    
+    // Also cleanup all realtime subscriptions to prevent ghost connections
+    // Import dynamically to avoid circular dependency
+    import('../services/RealtimeService').then(({ RealtimeService }) => {
+      RealtimeService.unsubscribeAll();
+      console.log('🔌 All realtime subscriptions cleaned up');
+    }).catch(err => {
+      console.warn('Could not cleanup realtime:', err);
+    });
   } catch (error) {
     console.error('Failed to clear game session:', error);
   }
