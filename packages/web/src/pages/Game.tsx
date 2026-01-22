@@ -177,6 +177,35 @@ export const Game: React.FC = () => {
     };
   }, [currentRound?.id, timerActive, setTimeRemaining, setTimerActive]);
 
+  // Handle timer expiration - call server-side force_advance_round
+  useEffect(() => {
+    if (!currentRound || timeRemaining !== 0) return;
+    
+    const handleTimerExpired = async () => {
+      console.log('⏰ Timer expired! Calling server-side force_advance_round...');
+      try {
+        const { getSupabase } = await import('@fakash/shared');
+        const supabase = getSupabase();
+        
+        const { error } = await supabase.rpc('force_advance_round', {
+          p_round_id: currentRound.id
+        });
+        
+        if (error) {
+          console.error('❌ Failed to force advance round:', error);
+        } else {
+          console.log('✅ Server processing timer expiration');
+        }
+      } catch (err) {
+        console.error('❌ Error calling force_advance_round:', err);
+      }
+    };
+    
+    // Small delay to prevent multiple rapid calls
+    const timer = setTimeout(handleTimerExpired, 500);
+    return () => clearTimeout(timer);
+  }, [currentRound?.id, timeRemaining]);
+
   // Recovery if stuck
   useEffect(() => {
     if (!game || !currentPlayer || (currentRound && question) || game.status !== 'playing' || isRecovering) return;
