@@ -117,6 +117,11 @@ export const Game: React.FC = () => {
       navigate('/');
       return;
     }
+    // If game hasn't started yet, go back to lobby
+    if (game.status === 'waiting') {
+      navigate('/lobby');
+      return;
+    }
     if (game.status === 'finished') {
       navigate('/results');
     }
