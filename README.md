@@ -1,6 +1,6 @@
 # Fgsh (فقش) - Multiplayer Arabic Trivia Game.
 
-A real-time multiplayer party game inspired by Fibbage, where players answer trivia questions and try to fool others with fake answers. Built with React, React Native, and Supabase.
+A reeeeal-time multiplayer party game inspired by Fibbage, where players answer trivia questions and try to fool others with fake answers. Built with React, React Native, and Supabase.
 
 ## 🎮 Game Overview
 
