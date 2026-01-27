@@ -440,6 +440,18 @@ export class GameService {
   }
 
   /**
+   * Manually advance to the next round (Host only)
+   */
+  static async advanceToNextRound(gameId: string): Promise<void> {
+    const supabase = getSupabase();
+    const { error } = await supabase.rpc('advance_to_next_round', {
+      p_game_id: gameId
+    });
+
+    if (error) throw error;
+  }
+
+  /**
    * End game
    */
   static async incrementRound(gameId: string): Promise<void> {

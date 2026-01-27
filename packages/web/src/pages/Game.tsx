@@ -310,7 +310,6 @@ export const Game: React.FC = () => {
       return;
     }
 
-    const nextRoundNumber = currentRound.round_number + 1;
     roundCreationRef.current = null;
 
     try {
