@@ -314,9 +314,11 @@ export const Game: React.FC = () => {
     roundCreationRef.current = null;
 
     try {
-      const { getSupabase } = await import('@fakash/shared');
-      const supabase = getSupabase();
-      await supabase.from('games').update({ current_round: nextRoundNumber }).eq('id', game.id);
+      const { GameService } = await import('@fakash/shared');
+      await GameService.advanceToNextRound(game.id);
+      
+      const nextRoundNumber = currentRound.round_number + 1;
+      // Start the round logic (creation) will handle the rest via effects
       const { startRound } = useRoundStore.getState();
       await startRound(game.id, nextRoundNumber, game.round_count);
     } catch (err) {
