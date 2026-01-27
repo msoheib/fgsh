@@ -4,7 +4,7 @@ import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { useGameStore, GAME_CONFIG, useAuthStore, PaymentService, clearGameSession } from '@fakash/shared';
+import { useGameStore, GAME_CONFIG, useAuthStore, PaymentService, clearGameSession, GameService } from '@fakash/shared';
 import { AuthModal } from '../components/auth';
 import { UpgradeModal } from '../components/payment';
 
@@ -53,7 +53,19 @@ export const CreateGame: React.FC = () => {
     setIsCheckingEntitlement(false);
 
     try {
-      // Clear any old game session first to prevent flickering
+      // End any existing game first to prevent lingering rooms
+      const existingGame = useGameStore.getState().game;
+      if (existingGame && existingGame.status !== 'finished') {
+        console.log('🗑️ Ending existing game before creating new room:', existingGame.id);
+        try {
+          await GameService.endGame(existingGame.id);
+        } catch (endErr) {
+          console.warn('Could not end existing game:', endErr);
+          // Continue anyway
+        }
+      }
+      
+      // Clear any old game session to prevent flickering
       clearGameSession();
       
       // Always create in TV Display Mode

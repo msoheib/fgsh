@@ -21,20 +21,20 @@ const SESSION_EXPIRY_MS = 4 * 60 * 60 * 1000; // 4 hours
  */
 export function saveGameSession(session: GameSession): void {
   try {
-    localStorage.setItem(SESSION_KEY, JSON.stringify(session));
-    console.log('💾 Game session saved to localStorage', session);
+    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    console.log('💾 Game session saved to sessionStorage', session);
   } catch (error) {
     console.error('Failed to save game session:', error);
   }
 }
 
 /**
- * Get game session from localStorage
+ * Get game session from sessionStorage
  * Returns null if no session or session expired
  */
 export function getGameSession(): GameSession | null {
   try {
-    const data = localStorage.getItem(SESSION_KEY);
+    const data = sessionStorage.getItem(SESSION_KEY);
     if (!data) return null;
 
     const session: GameSession = JSON.parse(data);
@@ -49,7 +49,7 @@ export function getGameSession(): GameSession | null {
       }
     }
 
-    console.log('📂 Game session loaded from localStorage', session);
+    console.log('📂 Game session loaded from sessionStorage', session);
     return session;
   } catch (error) {
     console.error('Failed to load game session:', error);
@@ -58,12 +58,12 @@ export function getGameSession(): GameSession | null {
 }
 
 /**
- * Clear game session from localStorage and cleanup realtime subscriptions
+ * Clear game session from sessionStorage and cleanup realtime subscriptions
  */
 export function clearGameSession(): void {
   try {
-    localStorage.removeItem(SESSION_KEY);
-    console.log('🗑️ Game session cleared from localStorage');
+    sessionStorage.removeItem(SESSION_KEY);
+    console.log('🗑️ Game session cleared from sessionStorage');
     
     // Also cleanup all realtime subscriptions to prevent ghost connections
     // Import dynamically to avoid circular dependency
