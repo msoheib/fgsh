@@ -4,7 +4,7 @@ import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { useGameStore, GAME_CONFIG, useAuthStore, PaymentService, clearGameSession, GameService } from '@fakash/shared';
+import { useGameStore, useRoundStore, GAME_CONFIG, useAuthStore, PaymentService, clearGameSession, GameService } from '@fakash/shared';
 import { AuthModal } from '../components/auth';
 import { UpgradeModal } from '../components/payment';
 
@@ -67,6 +67,10 @@ export const CreateGame: React.FC = () => {
       
       // Clear any old game session to prevent flickering
       clearGameSession();
+      
+      // DEEP RESET: Clear in-memory stores to prevent any state flickering
+      useGameStore.getState().reset();
+      useRoundStore.getState().reset();
       
       // Always create in TV Display Mode
       await createGameAsDisplay({
