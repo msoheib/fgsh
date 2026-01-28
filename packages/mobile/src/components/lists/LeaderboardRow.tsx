@@ -6,7 +6,7 @@
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
-import { Player } from '@fakash/shared';
+import { Player, useGameStore } from '@fakash/shared';
 import { PlayerAvatar } from '../game/PlayerAvatar';
 import { COLORS, SPACING, BORDER_RADIUS, TEXT_STYLES } from '../../theme';
 
@@ -27,6 +27,8 @@ const RANK_GRADIENTS = {
 export function LeaderboardRow({ player, rank, style }: LeaderboardRowProps) {
   const isTopThree = rank <= 3;
   const gradient = RANK_GRADIENTS[rank as keyof typeof RANK_GRADIENTS];
+  const { game } = useGameStore();
+  const isHost = game?.phase_captain_id === player.id;
 
   const content = (
     <>
@@ -45,7 +47,7 @@ export function LeaderboardRow({ player, rank, style }: LeaderboardRowProps) {
           name={player.user_name}
           color={player.avatar_color}
           size="md"
-          isHost={player.is_host}
+          isHost={isHost}
         />
 
         <Text

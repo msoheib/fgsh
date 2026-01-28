@@ -9,7 +9,7 @@ const PLAYER_COLORS = ['#8b5cf6', '#3b82f6', '#06b6d4', '#ec4899'];
 
 export const LobbyScreen: React.FC = () => {
   const navigation = useNavigation();
-  const { game, players, currentPlayer, isHost, startGame, isConnected } = useGameStore();
+  const { game, players, currentPlayer, isPhaseCaptain, startGame, isConnected } = useGameStore();
 
   // Navigate to game screen when game starts
   useEffect(() => {
@@ -34,7 +34,7 @@ export const LobbyScreen: React.FC = () => {
   }
 
   const handleStartGame = async () => {
-    if (!game || !isHost) return;
+    if (!game || !isPhaseCaptain) return;
 
     try {
       await startGame();
@@ -90,7 +90,7 @@ export const LobbyScreen: React.FC = () => {
         </View>
 
         {/* Start Game Button - Only show for host */}
-        {isHost && (
+        {isPhaseCaptain && (
           <TouchableOpacity
             style={styles.startButton}
             onPress={handleStartGame}
@@ -100,7 +100,7 @@ export const LobbyScreen: React.FC = () => {
           </TouchableOpacity>
         )}
 
-        {!isHost && (
+        {!isPhaseCaptain && (
           <View style={styles.waitingContainer}>
             <Text style={styles.waitingText}>في انتظار المضيف لبدء اللعبة...</Text>
           </View>

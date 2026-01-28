@@ -5,7 +5,7 @@
 
 import React from 'react';
 import { View, Text, StyleSheet, ViewStyle } from 'react-native';
-import { Player } from '@fakash/shared';
+import { Player, useGameStore } from '@fakash/shared';
 import { PlayerAvatar } from '../game/PlayerAvatar';
 import { COLORS, SPACING, TEXT_STYLES, BORDER_RADIUS } from '../../theme';
 
@@ -20,13 +20,16 @@ export function PlayerListItem({
   showScore = false,
   style,
 }: PlayerListItemProps) {
+  const { game } = useGameStore();
+  const isHost = game?.phase_captain_id === player.id;
+
   return (
     <View style={[styles.container, style]}>
       <PlayerAvatar
         name={player.user_name}
         color={player.avatar_color}
         size="md"
-        isHost={player.is_host}
+        isHost={isHost}
         connectionStatus={player.connection_status}
       />
 

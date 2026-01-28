@@ -8,7 +8,7 @@ const PLAYER_COLORS = ['#8b5cf6', '#3b82f6', '#06b6d4', '#ec4899'];
 
 export const ResultsScreen: React.FC = () => {
   const navigation = useNavigation();
-  const { game, players, isPhaseCaptain, isHost } = useGameStore();
+  const { game, players, isPhaseCaptain } = useGameStore();
 
   if (!game) {
     return (
@@ -20,7 +20,7 @@ export const ResultsScreen: React.FC = () => {
 
   const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
   const isGameFinished = game.status === 'finished';
-  const canAdvanceRound = (isPhaseCaptain || isHost) && !isGameFinished;
+  const canAdvanceRound = isPhaseCaptain && !isGameFinished;
 
   // Refresh scores when showing results
   useEffect(() => {
