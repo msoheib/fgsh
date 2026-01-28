@@ -373,23 +373,9 @@ export const useGameStore = create<GameState>((set, get) => ({
             console.log('➡️ Preparing for next round...');
             const currentRoundNumber = currentGame.current_round;
 
-            // Wait a moment to show scores, then clear for next round
-            const timeoutId = setTimeout(() => {
-              // Only reset if game hasn't advanced to next round yet
-              const freshGame = get().game;
-              if (freshGame && freshGame.current_round === currentRoundNumber) {
-                console.log('🧹 Resetting round state after round', currentRoundNumber);
-                import('./roundStore').then(({ useRoundStore }) => {
-                  useRoundStore.getState().reset();
-                });
-                set({ roundEndResetTimeout: null });
-              } else {
-                console.log('⏭️ Round already advanced, skipping reset');
-                set({ roundEndResetTimeout: null });
-              }
-            }, GAME_CONFIG.RESULTS_DISPLAY_DURATION * 1000); // Convert seconds to milliseconds
-
-            set({ roundEndResetTimeout: timeoutId });
+            // Wait a moment to show scores, but DO NOT clear for next round (manual mode)
+            // No auto-reset. We wait for the host to manually trigger the next round.
+            set({ roundEndResetTimeout: null });
           }
         },
         onConnected: () => {
