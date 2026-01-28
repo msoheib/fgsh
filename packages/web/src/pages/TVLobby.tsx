@@ -131,7 +131,7 @@ export const TVLobby: React.FC = () => {
               </div>
             ) : (
               <AnimatedCardContainer className="space-y-3 max-h-[400px] overflow-y-auto">
-                {players.map((player, index) => (
+                {players.map((player: any, index: number) => (
                   <AnimatedCard
                     key={player.id}
                     index={index}

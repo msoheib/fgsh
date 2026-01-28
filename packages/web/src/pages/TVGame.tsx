@@ -432,8 +432,8 @@ export const TVGame: React.FC = () => {
     );
   }
 
-  const submittedCount = players.filter((p) =>
-    allAnswers.some((a) => a.player_id === p.id)
+  const submittedCount = players.filter((p: { id: string }) =>
+    allAnswers.some((a: { player_id: string | null }) => a.player_id === p.id)
   ).length;
 
   return (
@@ -539,7 +539,7 @@ export const TVGame: React.FC = () => {
                     الإجابات المقدمة
                   </h3>
                   <AnimatedCardContainer className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {allAnswers.map((answer, index) => (
+                    {allAnswers.map((answer: { id: string; answer_text: string }, index: number) => (
                       <AnimatedCard
                         key={answer.id}
                         index={index}

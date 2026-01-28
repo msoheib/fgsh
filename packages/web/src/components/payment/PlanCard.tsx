@@ -62,7 +62,7 @@ export const PlanCard: React.FC<PlanCardProps> = ({
 
       {/* Features */}
       <div className="space-y-3 mb-8">
-        {plan.featuresAr.map((feature, index) => (
+        {plan.featuresAr.map((feature: string, index: number) => (
           <div key={index} className="flex items-start gap-3">
             <span className="text-secondary-main text-xl mt-0.5">✓</span>
             <span className="text-sm sm:text-base text-white/90">{feature}</span>

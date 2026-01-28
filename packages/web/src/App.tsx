@@ -58,7 +58,7 @@ function AppContent() {
     const rehydrateSession = useGameStore.getState().rehydrateSession;
 
     rehydrateSession()
-      .then((success) => {
+      .then((success: boolean) => {
         if (success) {
           // Get the freshly rehydrated game state
           const { game, isDisplayMode } = useGameStore.getState();
@@ -75,7 +75,7 @@ function AppContent() {
           }
         }
       })
-      .catch((error) => {
+      .catch((error: unknown) => {
         console.error('Failed to rehydrate session:', error);
       })
       .finally(() => {
