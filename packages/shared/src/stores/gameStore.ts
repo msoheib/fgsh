@@ -371,7 +371,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             // Game will be marked as finished by host
           } else {
             console.log('➡️ Preparing for next round...');
-            const currentRoundNumber = currentGame.current_round;
+            // const currentRoundNumber = currentGame.current_round;
 
             // Wait a moment to show scores, but DO NOT clear for next round (manual mode)
             // No auto-reset. We wait for the host to manually trigger the next round.
