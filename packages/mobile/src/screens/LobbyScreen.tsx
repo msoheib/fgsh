@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useGameStore, GAME_CONFIG } from '@fakash/shared';
+import { useGameStore, GAME_CONFIG, GameService } from '@fakash/shared';
 // ... existing imports ...
 
 
@@ -27,6 +27,30 @@ export const LobbyScreen: React.FC = () => {
       navigation.navigate('Game' as never);
     }
   }, [game?.status, navigation]);
+
+  // Polling fallback to ensure captain status is synced
+  useEffect(() => {
+    if (!game || !currentPlayer || game.status !== 'waiting') return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const freshGame = await GameService.getGame(game.id);
+        
+        if (freshGame) {
+          const isPhaseCaptain = currentPlayer?.id === freshGame.phase_captain_id;
+          
+          if (freshGame.status !== game.status || isPhaseCaptain !== useGameStore.getState().isPhaseCaptain) {
+            console.log('🔄 Polling updated game state:', { isPhaseCaptain, status: freshGame.status });
+            useGameStore.setState({ game: freshGame, isPhaseCaptain });
+          }
+        }
+      } catch (error) {
+        console.error('Polling error:', error);
+      }
+    }, 2000);
+
+    return () => clearInterval(pollInterval);
+  }, [game?.id, game?.status, currentPlayer?.id]);
 
   if (!game || !currentPlayer) {
     return (

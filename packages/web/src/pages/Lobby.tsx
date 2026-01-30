@@ -34,12 +34,18 @@ export const Lobby: React.FC = () => {
         const { GameService, useGameStore } = await import('@fakash/shared');
         const freshGame = await GameService.getGame(game.id);
         
-        if (freshGame?.status === 'playing') {
+        if (freshGame) {
           const currentPlayer = useGameStore.getState().currentPlayer;
           const isPhaseCaptain = currentPlayer?.id === freshGame.phase_captain_id;
-          useGameStore.setState({ game: freshGame, isPhaseCaptain });
-          clearInterval(pollInterval);
-          navigate('/game');
+          
+          if (freshGame.status === 'playing') {
+            useGameStore.setState({ game: freshGame, isPhaseCaptain });
+            clearInterval(pollInterval);
+            navigate('/game');
+          } else {
+            // Keep state in sync while waiting (fixes missing captain button issues)
+            useGameStore.setState({ game: freshGame, isPhaseCaptain });
+          }
         }
       } catch (error) {
         console.error('Polling error:', error);
