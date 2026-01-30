@@ -1,7 +1,10 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useGameStore } from '@fakash/shared';
+import { useGameStore, GAME_CONFIG } from '@fakash/shared';
+// ... existing imports ...
+
+
 import { Logo } from '../components/core/Logo';
 
 // Player colors matching the design
@@ -91,13 +94,24 @@ export const LobbyScreen: React.FC = () => {
 
         {/* Start Game Button - Only show for host */}
         {isPhaseCaptain && (
-          <TouchableOpacity
-            style={styles.startButton}
-            onPress={handleStartGame}
-            activeOpacity={0.8}
-          >
-            <Text style={styles.startButtonText}>ابدأ اللعبة</Text>
-          </TouchableOpacity>
+          <View>
+            <TouchableOpacity
+              style={[
+                styles.startButton,
+                players.length < GAME_CONFIG.MIN_PLAYERS && styles.startButtonDisabled
+              ]}
+              onPress={handleStartGame}
+              activeOpacity={0.8}
+              disabled={players.length < GAME_CONFIG.MIN_PLAYERS}
+            >
+              <Text style={styles.startButtonText}>ابدأ اللعبة</Text>
+            </TouchableOpacity>
+            {players.length < GAME_CONFIG.MIN_PLAYERS && (
+              <Text style={styles.warningText}>
+                تحتاج {GAME_CONFIG.MIN_PLAYERS} لاعبين على الأقل للبدء
+              </Text>
+            )}
+          </View>
         )}
 
         {!isPhaseCaptain && (
@@ -217,6 +231,16 @@ const styles = StyleSheet.create({
     color: '#ffffff',
     textAlign: 'center',
   },
+  startButtonDisabled: {
+    opacity: 0.5,
+    backgroundColor: '#9ca3af',
+  },
+  warningText: {
+    color: '#fbbf24',
+    fontSize: 12,
+    textAlign: 'center',
+    marginTop: 8,
+  },
   waitingContainer: {
     alignSelf: 'center',
     paddingVertical: 12,
@@ -226,6 +250,7 @@ const styles = StyleSheet.create({
     color: '#9ca3af',
     textAlign: 'center',
   },
+
   error: {
     color: '#ef4444',
     fontSize: 18,

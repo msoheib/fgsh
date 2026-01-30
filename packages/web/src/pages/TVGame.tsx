@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Logo } from '../components/Logo';
 import { EndRoomButton } from '../components/EndRoomButton';
-import { useGameStore, useRoundStore, RoundService } from '@fakash/shared';
+import { useGameStore, useRoundStore, RoundService, getRoundMultiplier } from '@fakash/shared';
 import {
   QuestionReveal,
   AnimatedCard,
@@ -449,10 +449,33 @@ export const TVGame: React.FC = () => {
             <Logo size="md" />
             <EndRoomButton size="sm" />
           </div>
-          <div className="glass rounded-2xl px-6 py-3">
-            <span className="text-2xl font-bold">
-              الجولة {currentRound.round_number} / {game.round_count}
-            </span>
+          <div className="flex gap-4">
+            {getRoundMultiplier(currentRound.round_number, game.round_count) > 1 && (
+              <motion.div
+                initial={{ scale: 0.9, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                className={`glass px-6 py-3 rounded-2xl border-2 ${
+                  getRoundMultiplier(currentRound.round_number, game.round_count) === 3
+                    ? 'border-red-500 bg-red-500/20'
+                    : 'border-yellow-400 bg-yellow-400/20'
+                }`}
+              >
+                <span className={`text-xl font-bold ${
+                  getRoundMultiplier(currentRound.round_number, game.round_count) === 3
+                    ? 'text-red-400'
+                    : 'text-yellow-400'
+                }`}>
+                  {getRoundMultiplier(currentRound.round_number, game.round_count) === 3
+                    ? '🔥🔥 نقاط ثلاثية!'
+                    : '🔥 نقاط مضاعفة!'}
+                </span>
+              </motion.div>
+            )}
+            <div className="glass rounded-2xl px-6 py-3">
+              <span className="text-2xl font-bold">
+                الجولة {currentRound.round_number} / {game.round_count}
+              </span>
+            </div>
           </div>
           <div className="glass rounded-2xl px-6 py-3">
             <span className="text-lg text-white/60">كود: </span>

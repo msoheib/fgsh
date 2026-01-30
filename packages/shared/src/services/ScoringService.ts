@@ -1,6 +1,6 @@
 import { getSupabase } from './supabase';
 import { Player, GameError, ErrorType } from '../types';
-import { calculateRoundScores, aggregateScores } from '../utils/scoring';
+import { calculateRoundScores, aggregateScores, getRoundMultiplier } from '../utils/scoring';
 
 export class ScoringService {
   /**
@@ -11,6 +11,22 @@ export class ScoringService {
     gameId: string
   ): Promise<{ player_id: string; new_score: number }[]> {
     const supabase = getSupabase();
+
+    // Get game info for multiplier
+    const { data: game, error: gameError } = await supabase
+      .from('games')
+      .select('current_round, round_count')
+      .eq('id', gameId)
+      .single();
+
+    if (gameError || !game) {
+      console.warn('Could not fetch game details for scoring multiplier, defaulting to 1x');
+    }
+
+    const multiplier = game ? getRoundMultiplier(game.current_round, game.round_count) : 1;
+    if (multiplier > 1) {
+      console.log(`✨ Applying ${multiplier}x score multiplier for round ${game?.current_round}/${game?.round_count}`);
+    }
 
     // Get all answers and votes for this round
     const { data: answers, error: answersError } = await supabase
@@ -28,7 +44,7 @@ export class ScoringService {
     }
 
     // Calculate scores
-    const scoreResults = calculateRoundScores(answers || [], votes || []);
+    const scoreResults = calculateRoundScores(answers || [], votes || [], multiplier);
     const aggregatedScores = aggregateScores(scoreResults);
 
     // Get current player scores

@@ -2,11 +2,25 @@ import { GAME_CONFIG } from '../constants/game';
 import { PlayerAnswer, Vote, ScoreResult } from '../types';
 
 /**
+ * Calculate the score multiplier for a given round
+ */
+export function getRoundMultiplier(currentRound: number, totalRounds: number): number {
+  if (currentRound >= totalRounds) {
+    return 3; // Triple points for final round
+  }
+  if (currentRound > totalRounds / 2) {
+    return 2; // Double points for second half
+  }
+  return 1; // Standard points
+}
+
+/**
  * Calculate points earned in a round for each player
  */
 export function calculateRoundScores(
   answers: PlayerAnswer[],
-  votes: Vote[]
+  votes: Vote[],
+  multiplier: number = 1
 ): ScoreResult[] {
   const scores: ScoreResult[] = [];
 
@@ -29,7 +43,7 @@ export function calculateRoundScores(
       votesForAnswer.forEach((vote) => {
         scores.push({
           player_id: vote.voter_id,
-          points_earned: GAME_CONFIG.POINTS.CORRECT_ANSWER,
+          points_earned: GAME_CONFIG.POINTS.CORRECT_ANSWER * multiplier,
           reason: 'correct_answer',
         });
       });
@@ -38,11 +52,11 @@ export function calculateRoundScores(
       // Skip system-inserted answers (player_id = null)
       if (!answer.player_id) return;
 
-      points = votesForAnswer.length * GAME_CONFIG.POINTS.PER_FOOLED_PLAYER;
+      points = (votesForAnswer.length * GAME_CONFIG.POINTS.PER_FOOLED_PLAYER) * multiplier;
 
       // Bonus for perfect fake (nobody voted for it AND it wasn't correct)
       if (votesForAnswer.length === 0) {
-        points += GAME_CONFIG.POINTS.PERFECT_FAKE_BONUS;
+        points += (GAME_CONFIG.POINTS.PERFECT_FAKE_BONUS * multiplier);
         reason = 'perfect_fake';
       } else {
         reason = 'fooled_players';
@@ -67,7 +81,7 @@ export function calculateRoundScores(
     winners.forEach((winner) => {
       scores.push({
         player_id: winner.player_id,
-        points_earned: GAME_CONFIG.POINTS.ROUND_WINNER_BONUS,
+        points_earned: GAME_CONFIG.POINTS.ROUND_WINNER_BONUS * multiplier,
         reason: 'round_winner',
       });
     });
