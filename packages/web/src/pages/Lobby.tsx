@@ -50,9 +50,10 @@ export const Lobby: React.FC = () => {
             if (!freshGame.phase_captain_id && freshGame.max_players > 0) {
               console.log('⚠️ Game has no captain! Attempting repair...');
               // If I am a player, try to promote someone (effectively picking a new captain)
-              // We pass a dummy ID because we just want to trigger the election logic
+              // We pass a dummy UUID (NIL UUID) because we just want to trigger the election logic
+              // and the RPC expects a valid UUID type.
               if (currentPlayer) {
-                 useGameStore.getState().promoteNewCaptain('REPAIR_TRIGGER');
+                 useGameStore.getState().promoteNewCaptain('00000000-0000-0000-0000-000000000000');
               }
             }
           }

@@ -47,7 +47,8 @@ export const LobbyScreen: React.FC = () => {
           // Auto-repair: If game has no captain but has players, try to claim it
           if (!freshGame.phase_captain_id && freshGame.max_players > 0 && currentPlayer) {
              console.log('⚠️ [Mobile] Game has no captain! Attempting repair...');
-             useGameStore.getState().promoteNewCaptain('REPAIR_TRIGGER');
+             // Use NIL UUID to satisfy Postgres type requirements
+             useGameStore.getState().promoteNewCaptain('00000000-0000-0000-0000-000000000000');
           }
         }
       } catch (error) {
