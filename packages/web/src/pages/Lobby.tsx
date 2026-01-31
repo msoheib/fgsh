@@ -43,8 +43,18 @@ export const Lobby: React.FC = () => {
             clearInterval(pollInterval);
             navigate('/game');
           } else {
-            // Keep state in sync while waiting (fixes missing captain button issues)
+            // Keep state in sync while waiting
             useGameStore.setState({ game: freshGame, isPhaseCaptain });
+
+            // Auto-repair: If game has no captain but has players, try to claim it
+            if (!freshGame.phase_captain_id && freshGame.max_players > 0) {
+              console.log('⚠️ Game has no captain! Attempting repair...');
+              // If I am a player, try to promote someone (effectively picking a new captain)
+              // We pass a dummy ID because we just want to trigger the election logic
+              if (currentPlayer) {
+                 useGameStore.getState().promoteNewCaptain('REPAIR_TRIGGER');
+              }
+            }
           }
         }
       } catch (error) {
@@ -54,6 +64,8 @@ export const Lobby: React.FC = () => {
 
     return () => clearInterval(pollInterval);
   }, [game, currentPlayer, navigate]);
+
+
 
   if (isDisplayMode || !game || !currentPlayer) {
     return null;
@@ -121,6 +133,14 @@ export const Lobby: React.FC = () => {
         >
           مغادرة
         </button>
+        
+        {/* Debug Info (Tiny) */}
+        <div className="mt-4 text-[10px] text-white/20 select-text font-mono">
+          <p>GID: {game.id.substring(0, 6)}</p>
+          <p>CID: {game.phase_captain_id ? game.phase_captain_id.substring(0, 6) : 'NULL'}</p>
+          <p>MID: {currentPlayer.id.substring(0, 6)}</p>
+          <p>V: 1.0.1</p>
+        </div>
       </div>
     </div>
   );

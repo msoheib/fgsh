@@ -43,6 +43,12 @@ export const LobbyScreen: React.FC = () => {
             console.log('🔄 Polling updated game state:', { isPhaseCaptain, status: freshGame.status });
             useGameStore.setState({ game: freshGame, isPhaseCaptain });
           }
+
+          // Auto-repair: If game has no captain but has players, try to claim it
+          if (!freshGame.phase_captain_id && freshGame.max_players > 0 && currentPlayer) {
+             console.log('⚠️ [Mobile] Game has no captain! Attempting repair...');
+             useGameStore.getState().promoteNewCaptain('REPAIR_TRIGGER');
+          }
         }
       } catch (error) {
         console.error('Polling error:', error);
@@ -143,6 +149,13 @@ export const LobbyScreen: React.FC = () => {
             <Text style={styles.waitingText}>في انتظار المضيف لبدء اللعبة...</Text>
           </View>
         )}
+
+        {/* Debug Info */}
+        <View style={{ marginTop: 20, alignItems: 'center', opacity: 0.3 }}>
+          <Text style={{ color: '#fff', fontSize: 10, fontFamily: 'monospace' }}>
+            CID: {game.phase_captain_id ? game.phase_captain_id.substring(0, 6) : 'NULL'} | MID: {currentPlayer.id.substring(0, 6)}
+          </Text>
+        </View>
       </View>
     </View>
   );
