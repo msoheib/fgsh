@@ -469,6 +469,8 @@ export const useGameStore = create<GameState>((set, get) => ({
         rehydrationAttempted: true, // Fresh session - skip rehydrate guard
       });
 
+      let displayReviewUntilTs: number | null = null;
+
       // Subscribe to realtime updates (display mode - no player actions)
       RealtimeService.subscribeToGame(game.id, {
         onGameUpdated: (updatedGame) => {
@@ -511,23 +513,46 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         onRoundStarted: (round, question) => {
           console.log('📺 [Display Mode] Round started:', { roundNumber: round.round_number, questionText: question.question_text });
-          // Display mode doesn't participate, just shows the round
           import('./roundStore').then(({ useRoundStore }) => {
-            const startTime = round.timer_starts_at ? new Date(round.timer_starts_at).getTime() : Date.now();
-            const elapsed = Math.floor((Date.now() - startTime) / 1000);
-            const initialTimeRemaining = Math.max(0, round.timer_duration - elapsed);
+            const applyRoundUpdate = () => {
+              const startTime = round.timer_starts_at ? new Date(round.timer_starts_at).getTime() : Date.now();
+              const elapsed = Math.floor((Date.now() - startTime) / 1000);
+              const initialTimeRemaining = Math.max(0, round.timer_duration - elapsed);
 
-            useRoundStore.setState({
-              currentRound: round,
-              question,
-              roundNumber: round.round_number,
-              roundStatus: round.status,
-              timeRemaining: initialTimeRemaining,
-              timerActive: true,
-              totalRounds: get().game?.round_count || 0,
-              isLoading: false,
-            });
+              useRoundStore.setState({
+                currentRound: round,
+                question,
+                roundNumber: round.round_number,
+                roundStatus: round.status,
+                timeRemaining: initialTimeRemaining,
+                timerActive: true,
+                totalRounds: get().game?.round_count || 0,
+                isLoading: false,
+              });
+
+              displayReviewUntilTs = null;
+            };
+
+            const delayMs = displayReviewUntilTs ? Math.max(0, displayReviewUntilTs - Date.now()) : 0;
+            if (delayMs > 0) {
+              console.log('📺 [Display Mode] Delaying round transition to preserve review:', delayMs, 'ms');
+              setTimeout(applyRoundUpdate, delayMs);
+              return;
+            }
+
+            applyRoundUpdate();
           });
+        },
+        onRoundStatusChanged: async (roundId: string, status: string) => {
+          const { useRoundStore } = await import('./roundStore');
+          const currentState = useRoundStore.getState();
+          if (currentState.currentRound?.id !== roundId) return;
+
+          if (status === 'completed') {
+            const minReviewMs = GAME_CONFIG.RESULTS_DISPLAY_DURATION * 1000;
+            const revealEstimateMs = Math.max(0, currentState.allAnswers.length * 4000 + 5000);
+            displayReviewUntilTs = Date.now() + Math.max(minReviewMs, revealEstimateMs);
+          }
         },
         onAnswerSubmitted: (playerId, _hasSubmitted) => {
           console.log('📺 [Display Mode] Answer submitted:', playerId);
@@ -1135,6 +1160,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           rehydrationAttempted: true,
         });
 
+        let displayReviewUntilTs: number | null = null;
+
         RealtimeService.subscribeToGame(game.id, {
           onGameUpdated: (updatedGame) => {
             set({ game: updatedGame });
@@ -1155,26 +1182,39 @@ export const useGameStore = create<GameState>((set, get) => ({
           },
           onRoundStarted: (round: GameRound, question: Question) => {
             import('./roundStore').then(({ useRoundStore }) => {
-              const startTime = round.timer_starts_at ? new Date(round.timer_starts_at).getTime() : Date.now();
-              const elapsed = Math.floor((Date.now() - startTime) / 1000);
-              const initialTimeRemaining = Math.max(0, round.timer_duration - elapsed);
+              const applyRoundUpdate = () => {
+                const startTime = round.timer_starts_at ? new Date(round.timer_starts_at).getTime() : Date.now();
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const initialTimeRemaining = Math.max(0, round.timer_duration - elapsed);
 
-              useRoundStore.setState({
-                currentRound: round,
-                question,
-                roundNumber: round.round_number,
-                roundStatus: round.status,
-                timeRemaining: initialTimeRemaining,
-                timerActive: initialTimeRemaining > 0,
-                totalRounds: get().game?.round_count || 0,
-                allAnswers: [],
-                playerAnswers: new Map(),
-                myAnswer: null,
-                hasSubmittedAnswer: false,
-                myVote: null,
-                hasSubmittedVote: false,
-                isLoading: false,
-              });
+                useRoundStore.setState({
+                  currentRound: round,
+                  question,
+                  roundNumber: round.round_number,
+                  roundStatus: round.status,
+                  timeRemaining: initialTimeRemaining,
+                  timerActive: initialTimeRemaining > 0,
+                  totalRounds: get().game?.round_count || 0,
+                  allAnswers: [],
+                  playerAnswers: new Map(),
+                  myAnswer: null,
+                  hasSubmittedAnswer: false,
+                  myVote: null,
+                  hasSubmittedVote: false,
+                  isLoading: false,
+                });
+
+                displayReviewUntilTs = null;
+              };
+
+              const delayMs = displayReviewUntilTs ? Math.max(0, displayReviewUntilTs - Date.now()) : 0;
+              if (delayMs > 0) {
+                console.log('[rehydrate] Delaying display round transition:', delayMs, 'ms');
+                setTimeout(applyRoundUpdate, delayMs);
+                return;
+              }
+
+              applyRoundUpdate();
             });
           },
           onRoundStatusChanged: async (roundId: string, status: string) => {
@@ -1182,6 +1222,12 @@ export const useGameStore = create<GameState>((set, get) => ({
             const currentState = useRoundStore.getState();
 
             if (currentState.currentRound?.id !== roundId) return;
+
+            if (status === 'completed') {
+              const minReviewMs = GAME_CONFIG.RESULTS_DISPLAY_DURATION * 1000;
+              const revealEstimateMs = Math.max(0, currentState.allAnswers.length * 4000 + 5000);
+              displayReviewUntilTs = Date.now() + Math.max(minReviewMs, revealEstimateMs);
+            }
 
             if (status === 'voting' || status === 'completed') {
               try {
