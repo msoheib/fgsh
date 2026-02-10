@@ -12,6 +12,57 @@ import { getRandomAvatarColor } from '../utils/avatars';
 import { GAME_CONFIG } from '../constants/game';
 
 export class GameService {
+  private static async claimPhaseCaptainIfNeeded(
+    gameId: string,
+    currentCaptainId: string | null,
+    playerId: string
+  ): Promise<string | null> {
+    if (currentCaptainId) {
+      return currentCaptainId;
+    }
+
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('claim_phase_captain_if_unassigned', {
+      p_game_id: gameId,
+      p_player_id: playerId,
+    });
+
+    if (error) {
+      console.warn('claim_phase_captain_if_unassigned RPC failed, using fallback:', error.message);
+
+      // Fallback for environments where the new RPC migration is not applied yet.
+      // This may still fail for non-host players due RLS, but should not block joining.
+      await supabase
+        .from('games')
+        .update({ phase_captain_id: playerId })
+        .eq('id', gameId)
+        .is('phase_captain_id', null);
+
+      const { data: freshGame } = await supabase
+        .from('games')
+        .select('phase_captain_id')
+        .eq('id', gameId)
+        .single();
+
+      return freshGame?.phase_captain_id ?? currentCaptainId;
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result) {
+      return currentCaptainId;
+    }
+
+    if (result.success === false) {
+      return result.phase_captain_id ?? currentCaptainId;
+    }
+
+    return result.phase_captain_id ?? currentCaptainId;
+  }
+
+  static async claimPhaseCaptain(gameId: string, playerId: string): Promise<string | null> {
+    return this.claimPhaseCaptainIfNeeded(gameId, null, playerId);
+  }
+
   /**
    * Create a new game and add host as first player
    */
@@ -42,7 +93,7 @@ export class GameService {
         .from('games')
         .select('id')
         .eq('code', code)
-        .single();
+        .maybeSingle();
 
       if (!existing) {
         break;
@@ -124,7 +175,7 @@ export class GameService {
         .from('games')
         .select('id')
         .eq('code', code)
-        .single();
+        .maybeSingle();
 
       if (!existing) {
         break;
@@ -227,23 +278,20 @@ export class GameService {
           throw new GameError(ErrorType.CONNECTION_LOST, reconnectError?.message);
         }
 
-        // Check if this player should be phase captain (if game has no captain)
-        if (!game.phase_captain_id) {
-          await supabase
-            .from('games')
-            .update({ phase_captain_id: reconnectedPlayer.id })
-            .eq('id', game.id);
-        }
+        const phaseCaptainId = await this.claimPhaseCaptainIfNeeded(
+          game.id,
+          game.phase_captain_id,
+          reconnectedPlayer.id
+        );
 
-        return { game, player: reconnectedPlayer };
+        return {
+          game: { ...game, phase_captain_id: phaseCaptainId },
+          player: reconnectedPlayer
+        };
       }
       // Player exists and is connected - duplicate name error
       throw new GameError(ErrorType.DUPLICATE_NAME);
     }
-
-    // Check if this is the first player (for display mode games)
-    const isFirstPlayer = (count || 0) === 0;
-    const shouldBePhaseCaptain = isFirstPlayer && !game.phase_captain_id; // First player becomes phase captain if none exists
 
     // Add player
     const { data: player, error: playerError } = await supabase
@@ -260,22 +308,17 @@ export class GameService {
       throw new GameError(ErrorType.CONNECTION_LOST, playerError?.message);
     }
 
-    // If this is the first player and game has no phase captain, promote them
-    if (shouldBePhaseCaptain) {
-      console.log('👑 First player joining display mode game, promoting to phase captain');
-      await supabase
-        .from('games')
-        .update({ phase_captain_id: player.id })
-        .eq('id', game.id);
 
-      // Return updated game with phase_captain_id
-      return {
-        game: { ...game, phase_captain_id: player.id },
-        player
-      };
-    }
+    const phaseCaptainId = await this.claimPhaseCaptainIfNeeded(
+      game.id,
+      game.phase_captain_id,
+      player.id
+    );
 
-    return { game, player };
+    return {
+      game: { ...game, phase_captain_id: phaseCaptainId },
+      player
+    };
   }
 
   /**

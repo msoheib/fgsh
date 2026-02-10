@@ -46,14 +46,19 @@ export const Lobby: React.FC = () => {
             // Keep state in sync while waiting
             useGameStore.setState({ game: freshGame, isPhaseCaptain });
 
-            // Auto-repair: If game has no captain but has players, try to claim it
-            if (!freshGame.phase_captain_id && freshGame.max_players > 0) {
-              console.log('⚠️ Game has no captain! Attempting repair...');
-              // If I am a player, try to promote someone (effectively picking a new captain)
-              // We pass a dummy UUID (NIL UUID) because we just want to trigger the election logic
-              // and the RPC expects a valid UUID type.
-              if (currentPlayer) {
-                 useGameStore.getState().promoteNewCaptain('00000000-0000-0000-0000-000000000000');
+            // Auto-repair: If game has no captain, let a connected player claim the role
+            if (!freshGame.phase_captain_id && currentPlayer) {
+              console.log('[Lobby] Game has no captain! Attempting captain claim...');
+              try {
+                const claimedCaptainId = await GameService.claimPhaseCaptain(freshGame.id, currentPlayer.id);
+                if (claimedCaptainId) {
+                  useGameStore.setState({
+                    game: { ...freshGame, phase_captain_id: claimedCaptainId },
+                    isPhaseCaptain: currentPlayer.id === claimedCaptainId
+                  });
+                }
+              } catch (claimError) {
+                console.error('Failed to claim captain role:', claimError);
               }
             }
           }
@@ -73,10 +78,12 @@ export const Lobby: React.FC = () => {
   }
 
   const handleStartGame = async () => {
+    console.log('🔘 Start Game clicked');
     try {
       await startGame();
+      console.log('✅ Start game signal sent');
     } catch (err) {
-      console.error('Failed to start:', err);
+      console.error('❌ Failed to start:', err);
       alert(err instanceof Error ? err.message : 'تعذر بدء اللعبة');
     }
   };

@@ -44,11 +44,20 @@ export const LobbyScreen: React.FC = () => {
             useGameStore.setState({ game: freshGame, isPhaseCaptain });
           }
 
-          // Auto-repair: If game has no captain but has players, try to claim it
-          if (!freshGame.phase_captain_id && freshGame.max_players > 0 && currentPlayer) {
-             console.log('⚠️ [Mobile] Game has no captain! Attempting repair...');
-             // Use NIL UUID to satisfy Postgres type requirements
-             useGameStore.getState().promoteNewCaptain('00000000-0000-0000-0000-000000000000');
+          // Auto-repair: If game has no captain, let a connected player claim the role
+          if (!freshGame.phase_captain_id && currentPlayer) {
+             console.log('[Mobile] Game has no captain! Attempting captain claim...');
+             try {
+               const claimedCaptainId = await GameService.claimPhaseCaptain(freshGame.id, currentPlayer.id);
+               if (claimedCaptainId) {
+                 useGameStore.setState({
+                   game: { ...freshGame, phase_captain_id: claimedCaptainId },
+                   isPhaseCaptain: currentPlayer.id === claimedCaptainId
+                 });
+               }
+             } catch (claimError) {
+               console.error('[Mobile] Failed to claim captain role:', claimError);
+             }
           }
         }
       } catch (error) {
@@ -69,11 +78,13 @@ export const LobbyScreen: React.FC = () => {
 
   const handleStartGame = async () => {
     if (!game || !isPhaseCaptain) return;
+    console.log('🔘 [Mobile] Start Game pressed');
 
     try {
       await startGame();
+      console.log('✅ [Mobile] Start game signal sent');
     } catch (err) {
-      console.error('Failed to start game:', err);
+      console.error('❌ [Mobile] Failed to start game:', err);
     }
   };
 

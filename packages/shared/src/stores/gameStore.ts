@@ -174,6 +174,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         gameCode: game.code,
         currentPlayer: player,
         isPhaseCaptain: true, // Creator starts as phase captain
+        isDisplayMode: false,
         players: [player],
         isLoading: false,
         rehydrationAttempted: true, // Fresh session - skip rehydrate guard
@@ -483,9 +484,22 @@ export const useGameStore = create<GameState>((set, get) => ({
             clearGameSession();
           }
         },
-        onPlayerJoined: (newPlayer) => {
-          console.log('📺 [Display Mode] Player joined:', newPlayer.user_name);
+        onPlayerJoined: async (newPlayer) => {
+          console.log('[Display Mode] Player joined:', newPlayer.user_name);
           get().addPlayer(newPlayer);
+
+          // In display mode, host auth can reliably assign first connected player as captain.
+          const currentGame = get().game;
+          if (currentGame && !currentGame.phase_captain_id) {
+            try {
+              const claimedCaptainId = await GameService.claimPhaseCaptain(currentGame.id, newPlayer.id);
+              if (claimedCaptainId) {
+                set({ game: { ...currentGame, phase_captain_id: claimedCaptainId } });
+              }
+            } catch (error) {
+              console.error('[Display Mode] Failed to assign phase captain after player join:', error);
+            }
+          }
         },
         onPlayerLeft: (playerId) => {
           console.log('📺 [Display Mode] Player left:', playerId);
@@ -663,6 +677,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         gameCode: game.code,
         currentPlayer: player,
         isPhaseCaptain,
+        isDisplayMode: false,
         players,
         isLoading: false,
         rehydrationAttempted: true, // Fresh session - skip rehydrate guard
@@ -1009,9 +1024,8 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Rehydrate session after page refresh
   rehydrateSession: async (): Promise<boolean> => {
-    console.log('🔄 Attempting to rehydrate session from localStorage...');
+    console.log('[rehydrate] Attempting to restore session from storage...');
 
-    // Reset round store first to clear any stale state
     const { useRoundStore } = await import('./roundStore');
     useRoundStore.getState().reset();
 
@@ -1019,80 +1033,267 @@ export const useGameStore = create<GameState>((set, get) => ({
     const session = getGameSession();
 
     if (!session) {
-      console.log('❌ No saved session found');
+      console.log('[rehydrate] No saved session found');
       set({ rehydrationAttempted: true });
       return false;
     }
 
     set({ isLoading: true, error: null });
 
-    try {
-      console.log('📂 Found saved session:', session);
+    const clearRehydratedState = (error: string | null = null) => {
+      set({
+        game: null,
+        gameCode: null,
+        players: [],
+        currentPlayer: null,
+        isPhaseCaptain: false,
+        isDisplayMode: false,
+        isConnected: false,
+        isLoading: false,
+        error,
+        rehydrationAttempted: true,
+      });
+    };
 
-      // Fetch game data
+    const restoreDisplayRoundState = async (gameId: string, totalRounds: number) => {
+      const { RoundService } = await import('../services/RoundService');
+      const currentRound = await RoundService.getCurrentRound(gameId);
+      if (!currentRound) return;
+
+      let question = currentRound.question;
+      if (!question) {
+        const { getSupabase } = await import('../services/supabase');
+        const supabase = getSupabase();
+        const { data: fetchedQuestion } = await supabase
+          .from('questions')
+          .select('*')
+          .eq('id', currentRound.question_id)
+          .maybeSingle();
+        question = fetchedQuestion || undefined;
+      }
+
+      if (!question) return;
+
+      const answers = currentRound.status === 'voting' || currentRound.status === 'completed'
+        ? await RoundService.getRoundAnswers(currentRound.id)
+        : [];
+
+      const startTime = currentRound.timer_starts_at
+        ? new Date(currentRound.timer_starts_at).getTime()
+        : Date.now();
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const timeRemaining = Math.max(0, currentRound.timer_duration - elapsed);
+
+      useRoundStore.setState({
+        currentRound,
+        question,
+        roundNumber: currentRound.round_number,
+        roundStatus: currentRound.status,
+        timeRemaining,
+        timerActive: currentRound.status !== 'completed' && timeRemaining > 0,
+        allAnswers: answers,
+        playerAnswers: new Map(),
+        myAnswer: null,
+        hasSubmittedAnswer: false,
+        myVote: null,
+        hasSubmittedVote: false,
+        totalRounds,
+        isLoading: false,
+      });
+    };
+
+    try {
+      console.log('[rehydrate] Found saved session:', session);
+
       const game = await GameService.getGame(session.gameId);
       if (!game) {
-        console.log('❌ Game not found in database');
+        console.log('[rehydrate] Game no longer exists');
         clearGameSession();
-        set({ isLoading: false, rehydrationAttempted: true });
+        clearRehydratedState();
         return false;
       }
 
-      // Don't rehydrate finished games
       if (game.status === 'finished') {
-        console.log('❌ Game is finished, clearing session');
+        console.log('[rehydrate] Game is finished, clearing stale session');
         clearGameSession();
-        set({ isLoading: false, rehydrationAttempted: true });
+        clearRehydratedState();
         return false;
       }
 
-      // Fetch player data
       const players = await GameService.getGamePlayers(game.id);
-      const currentPlayer = players.find(p => p.id === session.playerId);
+      const isDisplaySession = session.isDisplayMode || !session.playerId;
+
+      if (isDisplaySession) {
+        set({
+          game,
+          gameCode: game.code,
+          players,
+          currentPlayer: null,
+          isPhaseCaptain: false,
+          isDisplayMode: true,
+          isLoading: false,
+          rehydrationAttempted: true,
+        });
+
+        RealtimeService.subscribeToGame(game.id, {
+          onGameUpdated: (updatedGame) => {
+            set({ game: updatedGame });
+
+            if (updatedGame.status === 'finished') {
+              console.log('[rehydrate] Display game finished; clearing session');
+              clearGameSession();
+            }
+          },
+          onPlayerJoined: (newPlayer) => {
+            get().addPlayer(newPlayer);
+          },
+          onPlayerLeft: (playerId) => {
+            get().removePlayer(playerId);
+          },
+          onGameStarted: (updatedGame) => {
+            set({ game: updatedGame });
+          },
+          onRoundStarted: (round: GameRound, question: Question) => {
+            import('./roundStore').then(({ useRoundStore }) => {
+              const startTime = round.timer_starts_at ? new Date(round.timer_starts_at).getTime() : Date.now();
+              const elapsed = Math.floor((Date.now() - startTime) / 1000);
+              const initialTimeRemaining = Math.max(0, round.timer_duration - elapsed);
+
+              useRoundStore.setState({
+                currentRound: round,
+                question,
+                roundNumber: round.round_number,
+                roundStatus: round.status,
+                timeRemaining: initialTimeRemaining,
+                timerActive: initialTimeRemaining > 0,
+                totalRounds: get().game?.round_count || 0,
+                allAnswers: [],
+                playerAnswers: new Map(),
+                myAnswer: null,
+                hasSubmittedAnswer: false,
+                myVote: null,
+                hasSubmittedVote: false,
+                isLoading: false,
+              });
+            });
+          },
+          onRoundStatusChanged: async (roundId: string, status: string) => {
+            const { useRoundStore } = await import('./roundStore');
+            const currentState = useRoundStore.getState();
+
+            if (currentState.currentRound?.id !== roundId) return;
+
+            if (status === 'voting' || status === 'completed') {
+              try {
+                const { RoundService } = await import('../services/RoundService');
+                const answers = await RoundService.getRoundAnswers(roundId);
+                const { getSupabase } = await import('../services/supabase');
+                const supabase = getSupabase();
+                const { data: updatedRound } = await supabase
+                  .from('game_rounds')
+                  .select('*')
+                  .eq('id', roundId)
+                  .single();
+
+                const startTime = updatedRound?.timer_starts_at
+                  ? new Date(updatedRound.timer_starts_at).getTime()
+                  : Date.now();
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const remaining = Math.max(0, (updatedRound?.timer_duration || currentState.currentRound?.timer_duration || 20) - elapsed);
+
+                useRoundStore.setState({
+                  currentRound: updatedRound || currentState.currentRound,
+                  roundStatus: status as any,
+                  allAnswers: answers,
+                  timeRemaining: remaining,
+                  timerActive: status !== 'completed' && remaining > 0,
+                });
+              } catch (error) {
+                console.error('[rehydrate] Failed to refresh display round status:', error);
+                useRoundStore.setState({ roundStatus: status as any });
+              }
+            } else {
+              useRoundStore.setState({ roundStatus: status as any });
+            }
+          },
+          onConnected: () => {
+            set({ isConnected: true });
+            const { game: g } = get();
+            if (g?.id) {
+              SyncService.startSync(g.id, null, (result) => {
+                if (result.success && result.state) {
+                  handleSyncResult(result.state, get, set);
+                }
+              });
+            }
+          },
+          onDisconnected: () => {
+            set({ isConnected: false });
+          },
+          onReconnected: async () => {
+            const { game } = get();
+            if (!game?.id) return;
+
+            const result = await SyncService.forceSyncNow(game.id, null);
+            if (result.success && result.state) {
+              await handleSyncResult(result.state, get, set);
+            }
+          },
+        });
+
+        if (game.status === 'playing' && game.current_round > 0) {
+          try {
+            await restoreDisplayRoundState(game.id, game.round_count);
+          } catch (err) {
+            console.error('[rehydrate] Failed to restore display round state:', err);
+          }
+        }
+
+        console.log('[rehydrate] Display session restored successfully');
+        return true;
+      }
+
+      const currentPlayer = players.find((p) => p.id === session.playerId);
 
       if (!currentPlayer) {
-        console.log('❌ Player not found in game');
+        console.log('[rehydrate] Player in session is no longer in this game');
         clearGameSession();
-        set({ isLoading: false, rehydrationAttempted: true });
+        clearRehydratedState();
         return false;
       }
 
-      // If player is marked disconnected, reconnect them
       if (currentPlayer.connection_status === 'disconnected') {
-        console.log('🔄 Rehydrating disconnected player, marking as connected');
+        console.log('[rehydrate] Marking disconnected player as connected again');
         try {
           await GameService.updatePlayerStatus(currentPlayer.id, 'connected');
           currentPlayer.connection_status = 'connected';
         } catch (err) {
-          console.error('❌ Failed to reconnect player:', err);
+          console.error('[rehydrate] Failed to reconnect player:', err);
           clearGameSession();
-          set({ isLoading: false, rehydrationAttempted: true });
+          clearRehydratedState();
           return false;
         }
       }
 
-      // Check if player is still phase captain
       const isPhaseCaptain = game.phase_captain_id === currentPlayer.id;
 
-      // Restore game state
       set({
         game,
         gameCode: game.code,
         currentPlayer,
         players,
         isPhaseCaptain,
+        isDisplayMode: false,
         isLoading: false,
         rehydrationAttempted: true,
       });
 
-      // Resubscribe to realtime events (same callbacks as create/joinGame)
       RealtimeService.subscribeToGame(game.id, {
         onGameUpdated: (updatedGame) => {
           const currentPlayer = get().currentPlayer;
           const isPhaseCaptain = currentPlayer?.id === updatedGame.phase_captain_id;
           set({ game: updatedGame, isPhaseCaptain });
 
-          // Clear session when game finishes (don't rehydrate finished games)
           if (updatedGame.status === 'finished') {
             console.log('🏁 Game finished, clearing session to prevent rehydration');
             clearGameSession();
@@ -1178,7 +1379,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         onConnected: () => {
           set({ isConnected: true });
-          // Start periodic sync for safety net
           const { game: g, currentPlayer: cp } = get();
           if (g?.id) {
             SyncService.startSync(g.id, cp?.id || null, (result) => {
@@ -1192,14 +1392,13 @@ export const useGameStore = create<GameState>((set, get) => ({
           set({ isConnected: false });
         },
         onReconnected: async () => {
-          // Force immediate sync to catch missed updates
           const { game } = get();
           if (!game?.id) return;
 
           console.log('🔄 Force syncing after reconnection...');
           const currentPlayer = get().currentPlayer;
           const result = await SyncService.forceSyncNow(game.id, currentPlayer?.id || null);
-          
+
           if (result.success && result.state) {
             await handleSyncResult(result.state, get, set);
             console.log('✅ Full state sync completed after reconnection');
@@ -1209,7 +1408,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         },
         onPresenceSync: (presences) => {
           console.log('👥 Presence sync:', presences.length, 'players online');
-          // Update player connection status based on presence
           const onlinePlayerIds = new Set(presences.map(p => p.player_id));
           const players = get().players.map(p => ({
             ...p,
@@ -1224,14 +1422,12 @@ export const useGameStore = create<GameState>((set, get) => ({
           console.log('👤 Player left (presence):', presence.nickname);
         },
       },
-      // Pass player info for presence tracking
       {
         id: currentPlayer.id,
         nickname: currentPlayer.user_name,
       }
       );
 
-      // If game is playing and there's an active round, restore round state
       if (game.status === 'playing' && game.current_round > 0) {
         console.log('🔄 Game in progress, fetching current round...');
         const { RoundService } = await import('../services/RoundService');
@@ -1241,19 +1437,16 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (currentRound) {
             const question = currentRound.question!;
 
-            // Calculate time remaining
             const startTime = currentRound.timer_starts_at
               ? new Date(currentRound.timer_starts_at).getTime()
               : Date.now();
             const elapsed = Math.floor((Date.now() - startTime) / 1000);
             const timeRemaining = Math.max(0, currentRound.timer_duration - elapsed);
 
-            // Get answers if in voting phase
             const answers = currentRound.status === 'voting' || currentRound.status === 'completed'
               ? await RoundService.getRoundAnswers(currentRound.id)
               : [];
 
-            // Restore round state
             import('./roundStore').then(({ useRoundStore }) => {
               useRoundStore.setState({
                 currentRound,
@@ -1283,9 +1476,9 @@ export const useGameStore = create<GameState>((set, get) => ({
       console.log('✅ Session rehydrated successfully');
       return true;
     } catch (error: any) {
-      console.error('❌ Failed to rehydrate session:', error);
+      console.error('[rehydrate] Failed to rehydrate session:', error);
       clearGameSession();
-      set({ error: error.message, isLoading: false, rehydrationAttempted: true });
+      clearRehydratedState(error?.message || 'Failed to rehydrate session');
       return false;
     }
   },
@@ -1479,3 +1672,4 @@ export const useGameStore = create<GameState>((set, get) => ({
     });
   },
 }));
+

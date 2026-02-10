@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useState, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Logo } from '../components/Logo';
@@ -266,12 +266,69 @@ export const TVGame: React.FC = () => {
 
   const [showConfetti, setShowConfetti] = useState(false);
   const [isRevealing, setIsRevealing] = useState(false);
+  const [isRecovering, setIsRecovering] = useState(false);
   const [revealData, setRevealData] = useState<RevealAnswer[]>([]);
   const [currentRevealIndex, setCurrentRevealIndex] = useState(0);
   const [revealComplete, setRevealComplete] = useState(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const revealForRoundIdRef = useRef<string | null>(null); // Track which round reveal is for
   const confetti = useConfetti();
+
+  const recoverRoundState = useCallback(async () => {
+    if (!game || game.status !== 'playing' || isRecovering) return;
+
+    setIsRecovering(true);
+    try {
+      const { RoundService, getSupabase } = await import('@fakash/shared');
+      const round = await RoundService.getCurrentRound(game.id);
+
+      if (!round) return;
+
+      let recoveredQuestion = round.question;
+      if (!recoveredQuestion) {
+        const supabase = getSupabase();
+        const { data: questionData } = await supabase
+          .from('questions')
+          .select('*')
+          .eq('id', round.question_id)
+          .maybeSingle();
+        recoveredQuestion = questionData || undefined;
+      }
+
+      if (!recoveredQuestion) return;
+
+      const answers = round.status === 'voting' || round.status === 'completed'
+        ? await RoundService.getRoundAnswers(round.id)
+        : [];
+
+      const startTime = round.timer_starts_at
+        ? new Date(round.timer_starts_at).getTime()
+        : Date.now();
+      const elapsed = Math.floor((Date.now() - startTime) / 1000);
+      const remaining = Math.max(0, round.timer_duration - elapsed);
+
+      useRoundStore.setState({
+        currentRound: round,
+        question: recoveredQuestion,
+        roundNumber: round.round_number,
+        roundStatus: round.status,
+        timeRemaining: remaining,
+        timerActive: round.status !== 'completed' && remaining > 0,
+        allAnswers: answers,
+        playerAnswers: new Map(),
+        myAnswer: null,
+        hasSubmittedAnswer: false,
+        myVote: null,
+        hasSubmittedVote: false,
+        totalRounds: game.round_count,
+        isLoading: false,
+      });
+    } catch (err) {
+      console.error('TV recovery failed:', err);
+    } finally {
+      setIsRecovering(false);
+    }
+  }, [game, isRecovering]);
 
   // Fetch reveal data when round completes
   useEffect(() => {
@@ -411,6 +468,13 @@ export const TVGame: React.FC = () => {
     syncScores();
   }, [game, revealComplete]);
 
+  // Recovery mechanism: self-heal if stuck on loader
+  useEffect(() => {
+    if (!game || game.status !== 'playing' || (currentRound && question) || isRecovering) return;
+    const timer = setTimeout(() => recoverRoundState(), 2500);
+    return () => clearTimeout(timer);
+  }, [game, currentRound, question, isRecovering, recoverRoundState]);
+
   if (!game || !isDisplayMode) {
     return null;
   }
@@ -427,6 +491,7 @@ export const TVGame: React.FC = () => {
             className="w-20 h-20 border-4 border-white border-t-transparent rounded-full mx-auto mb-6"
           />
           <p className="text-2xl text-white/80">جارٍ تحميل الجولة...</p>
+          {isRecovering && <p className="text-sm text-white/60 mt-3">جارٍ الاستعادة...</p>}
         </div>
       </div>
     );
@@ -634,3 +699,4 @@ export const TVGame: React.FC = () => {
     </div>
   );
 };
+
