@@ -5,7 +5,7 @@ import { useGameStore, useRoundStore, GAME_CONFIG } from '@fakash/shared';
 // Ultra-minimal player input screen - zero animations for lowest latency
 export const Game: React.FC = () => {
   const navigate = useNavigate();
-  const { game, currentPlayer, isPhaseCaptain, isDisplayMode, rehydrationAttempted } = useGameStore();
+  const { game, players, currentPlayer, isDisplayMode, rehydrationAttempted } = useGameStore();
   const {
     currentRound,
     question,
@@ -27,6 +27,8 @@ export const Game: React.FC = () => {
   const roundCreationRef = useRef<number | null>(null);
   const isCreatingRoundRef = useRef<boolean>(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? players[0]?.id ?? null;
+  const canControlFlow = !!currentPlayer && (controllerPlayerId ? currentPlayer.id === controllerPlayerId : true);
 
   // Recovery function
   const recoverRoundState = useCallback(async () => {
@@ -129,7 +131,7 @@ export const Game: React.FC = () => {
 
   // Phase captain: create round
   useEffect(() => {
-    if (!game || !rehydrationAttempted || game.status !== 'playing' || !isPhaseCaptain) return;
+    if (!game || !rehydrationAttempted || game.status !== 'playing' || !canControlFlow) return;
 
     const needsNewRound = !currentRound || currentRound.round_number < game.current_round;
 
@@ -150,7 +152,7 @@ export const Game: React.FC = () => {
         }
       })();
     }
-  }, [game, currentRound, isPhaseCaptain, rehydrationAttempted]);
+  }, [game, currentRound, canControlFlow, rehydrationAttempted]);
 
   // Timer countdown (background)
   useEffect(() => {
@@ -297,7 +299,7 @@ export const Game: React.FC = () => {
   const isFinalRound = currentRound.round_number === game.round_count;
 
   const handleNextRound = async () => {
-    if (!isPhaseCaptain) return;
+    if (!canControlFlow) return;
 
     if (isFinalRound) {
       try {
@@ -343,7 +345,7 @@ export const Game: React.FC = () => {
       {/* Minimal header */}
       <p className="text-xs text-white/40 mb-3">
         الجولة {currentRound.round_number}/{game.round_count}
-        {isPhaseCaptain && ' • 👑'}
+        {canControlFlow && ' • 👑'}
       </p>
 
       <div className="bg-white/10 backdrop-blur rounded-2xl p-4 max-w-xs w-full">
@@ -421,7 +423,7 @@ export const Game: React.FC = () => {
           <div className="text-center">
             <p className="text-lg mb-4">📺 تابع الكشف على الشاشة</p>
 
-            {isPhaseCaptain && (
+            {canControlFlow && (
               <button
                 onClick={handleNextRound}
                 className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold"

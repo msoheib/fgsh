@@ -1,11 +1,11 @@
 import React, { useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useGameStore, GAME_CONFIG } from '@fakash/shared';
+import { useGameStore } from '@fakash/shared';
 
 // Ultra-minimal player lobby - just waiting message and game code
 export const Lobby: React.FC = () => {
   const navigate = useNavigate();
-  const { game, players, currentPlayer, isPhaseCaptain, isDisplayMode, startGame, isConnected } = useGameStore();
+  const { game, players, currentPlayer, isDisplayMode, startGame, isConnected } = useGameStore();
 
   // Redirect display mode to TV lobby
   useEffect(() => {
@@ -81,6 +81,9 @@ export const Lobby: React.FC = () => {
     return null;
   }
 
+  const controllerPlayerId = game.host_id ?? game.phase_captain_id ?? players[0]?.id ?? null;
+  const canControlFlow = controllerPlayerId ? currentPlayer.id === controllerPlayerId : true;
+
   const handleStartGame = async () => {
     console.log('🔘 Start Game clicked');
     try {
@@ -114,24 +117,18 @@ export const Lobby: React.FC = () => {
         </p>
 
         {/* Actions */}
-        {isPhaseCaptain ? (
+        {canControlFlow ? (
           <div>
             <button
               onClick={handleStartGame}
-              disabled={players.length < GAME_CONFIG.MIN_PLAYERS}
               className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50"
             >
               بدأ اللعبة
             </button>
-            {players.length < GAME_CONFIG.MIN_PLAYERS && (
-              <p className="text-xs text-white/50 mt-2">
-                تحتاج {GAME_CONFIG.MIN_PLAYERS} لاعبين
-              </p>
-            )}
           </div>
         ) : (
           <p className="text-sm text-white/60 p-3 bg-white/5 rounded-xl">
-            في انتظار بدء اللعبة...
+            في انتظار مسؤول الجولة لبدء اللعبة...
           </p>
         )}
 

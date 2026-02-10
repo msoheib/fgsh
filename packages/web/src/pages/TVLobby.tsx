@@ -5,7 +5,7 @@ import { QRCodeSVG } from 'qrcode.react';
 import { Logo } from '../components/Logo';
 import { PlayerAvatar } from '../components/PlayerAvatar';
 import { EndRoomButton } from '../components/EndRoomButton';
-import { useGameStore, GAME_CONFIG } from '@fakash/shared';
+import { useGameStore } from '@fakash/shared';
 import { AnimatedCard, AnimatedCardContainer } from '../components/animations';
 
 export const TVLobby: React.FC = () => {
@@ -59,7 +59,6 @@ export const TVLobby: React.FC = () => {
   }
 
   const joinUrl = `${window.location.origin}/join?code=${game.code}`;
-  const canStart = players.length >= GAME_CONFIG.MIN_PLAYERS;
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-8 bg-gradient-primary relative">
@@ -166,23 +165,15 @@ export const TVLobby: React.FC = () => {
 
             {/* Status message */}
             <div className="mt-6 text-center">
-              {canStart ? (
-                <motion.div
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  className="p-4 bg-secondary-main/20 border border-secondary-main/50 rounded-2xl"
-                >
-                  <p className="text-lg">
-                    ✅ جاهز للبدء! انتظر قائد اللعبة للضغط على "بدء اللعبة"
-                  </p>
-                </motion.div>
-              ) : (
-                <div className="p-4 bg-white/5 border border-white/10 rounded-2xl">
-                  <p className="text-lg text-white/60">
-                    يحتاج {GAME_CONFIG.MIN_PLAYERS - players.length} لاعبين إضافيين للبدء
-                  </p>
-                </div>
-              )}
+              <motion.div
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="p-4 bg-secondary-main/20 border border-secondary-main/50 rounded-2xl"
+              >
+                <p className="text-lg">
+                  Ready to start! Waiting for the controller to press "Start Game"
+                </p>
+              </motion.div>
             </div>
           </div>
         </div>

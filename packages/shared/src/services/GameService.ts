@@ -9,7 +9,6 @@ import {
 import { generateGameCode } from '../utils/gameCode';
 import { validateGameSettings, validatePlayerName, sanitizeText } from '../utils/validation';
 import { getRandomAvatarColor } from '../utils/avatars';
-import { GAME_CONFIG } from '../constants/game';
 
 export class GameService {
   private static async claimPhaseCaptainIfNeeded(
@@ -322,34 +321,11 @@ export class GameService {
   }
 
   /**
-   * Start the game (phase captain only)
+   * Start the game.
+   * Controller checks are handled in the client to support captain fallback logic.
    */
-  static async startGame(gameId: string, playerId: string): Promise<void> {
+  static async startGame(gameId: string, _playerId: string): Promise<void> {
     const supabase = getSupabase();
-
-    // Verify player is phase captain
-    const { data: game } = await supabase
-      .from('games')
-      .select('phase_captain_id')
-      .eq('id', gameId)
-      .single();
-
-    if (game?.phase_captain_id !== playerId) {
-      throw new GameError(ErrorType.CONNECTION_LOST, 'Only phase captain can start game');
-    }
-
-    // Check minimum players
-    const { count } = await supabase
-      .from('players')
-      .select('*', { count: 'exact', head: true })
-      .eq('game_id', gameId);
-
-    if ((count || 0) < GAME_CONFIG.MIN_PLAYERS) {
-      throw new GameError(
-        ErrorType.CONNECTION_LOST,
-        `Need at least ${GAME_CONFIG.MIN_PLAYERS} players`
-      );
-    }
 
     // Update game status
     const { error } = await supabase
@@ -371,19 +347,6 @@ export class GameService {
    */
   static async startGameFromDisplay(gameId: string): Promise<void> {
     const supabase = getSupabase();
-
-    // Check minimum players
-    const { count } = await supabase
-      .from('players')
-      .select('*', { count: 'exact', head: true })
-      .eq('game_id', gameId);
-
-    if ((count || 0) < GAME_CONFIG.MIN_PLAYERS) {
-      throw new GameError(
-        ErrorType.CONNECTION_LOST,
-        `Need at least ${GAME_CONFIG.MIN_PLAYERS} players`
-      );
-    }
 
     // Update game status
     const { error } = await supabase
