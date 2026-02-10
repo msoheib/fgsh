@@ -32,19 +32,22 @@ export const Lobby: React.FC = () => {
     const pollInterval = setInterval(async () => {
       try {
         const { GameService, useGameStore } = await import('@fakash/shared');
-        const freshGame = await GameService.getGame(game.id);
+        const [freshGame, freshPlayers] = await Promise.all([
+          GameService.getGame(game.id),
+          GameService.getGamePlayers(game.id)
+        ]);
         
         if (freshGame) {
           const currentPlayer = useGameStore.getState().currentPlayer;
           const isPhaseCaptain = currentPlayer?.id === freshGame.phase_captain_id;
           
           if (freshGame.status === 'playing') {
-            useGameStore.setState({ game: freshGame, isPhaseCaptain });
+            useGameStore.setState({ game: freshGame, isPhaseCaptain, players: freshPlayers });
             clearInterval(pollInterval);
             navigate('/game');
           } else {
             // Keep state in sync while waiting
-            useGameStore.setState({ game: freshGame, isPhaseCaptain });
+            useGameStore.setState({ game: freshGame, isPhaseCaptain, players: freshPlayers });
 
             // Auto-repair: If game has no captain, let a connected player claim the role
             if (!freshGame.phase_captain_id && currentPlayer) {
@@ -54,6 +57,7 @@ export const Lobby: React.FC = () => {
                 if (claimedCaptainId) {
                   useGameStore.setState({
                     game: { ...freshGame, phase_captain_id: claimedCaptainId },
+                    players: freshPlayers,
                     isPhaseCaptain: currentPlayer.id === claimedCaptainId
                   });
                 }
