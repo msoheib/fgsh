@@ -11,12 +11,18 @@ import { validateGameSettings, validatePlayerName, sanitizeText } from '../utils
 import { getRandomAvatarColor } from '../utils/avatars';
 
 export class GameService {
+  private static claimCaptainRpcAvailable: boolean | null = null;
+
   private static async claimPhaseCaptainIfNeeded(
     gameId: string,
     currentCaptainId: string | null,
     playerId: string
   ): Promise<string | null> {
     if (currentCaptainId) {
+      return currentCaptainId;
+    }
+
+    if (this.claimCaptainRpcAvailable === false) {
       return currentCaptainId;
     }
 
@@ -27,25 +33,17 @@ export class GameService {
     });
 
     if (error) {
-      console.warn('claim_phase_captain_if_unassigned RPC failed, using fallback:', error.message);
-
-      // Fallback for environments where the new RPC migration is not applied yet.
-      // This may still fail for non-host players due RLS, but should not block joining.
-      await supabase
-        .from('games')
-        .update({ phase_captain_id: playerId })
-        .eq('id', gameId)
-        .is('phase_captain_id', null);
-
-      const { data: freshGame } = await supabase
-        .from('games')
-        .select('phase_captain_id')
-        .eq('id', gameId)
-        .single();
-
-      return freshGame?.phase_captain_id ?? currentCaptainId;
+      const message = error.message || '';
+      if (message.includes('Could not find the function public.claim_phase_captain_if_unassigned')) {
+        this.claimCaptainRpcAvailable = false;
+        console.warn('claim_phase_captain_if_unassigned RPC not found; skipping captain claim.');
+        return currentCaptainId;
+      }
+      console.warn('claim_phase_captain_if_unassigned RPC failed:', error.message);
+      return currentCaptainId;
     }
 
+    this.claimCaptainRpcAvailable = true;
     const result = Array.isArray(data) ? data[0] : data;
     if (!result) {
       return currentCaptainId;
@@ -322,22 +320,49 @@ export class GameService {
 
   /**
    * Start the game.
-   * Controller checks are handled in the client to support captain fallback logic.
+   * Uses RPC so connected players can start under host-auth RLS.
    */
-  static async startGame(gameId: string, _playerId: string): Promise<void> {
+  static async startGame(gameId: string, playerId: string): Promise<void> {
     const supabase = getSupabase();
 
-    // Update game status
-    const { error } = await supabase
-      .from('games')
-      .update({
-        status: 'playing',
-        current_round: 1,
-      })
-      .eq('id', gameId);
+    const { data, error } = await supabase.rpc('start_game_as_player', {
+      p_game_id: gameId,
+      p_player_id: playerId,
+    });
 
     if (error) {
+      // Backward compatibility if migration is not applied yet.
+      if (error.message?.includes('Could not find the function public.start_game_as_player')) {
+        const { data: updatedGame, error: updateError } = await supabase
+          .from('games')
+          .update({
+            status: 'playing',
+            current_round: 1,
+          })
+          .eq('id', gameId)
+          .eq('status', 'waiting')
+          .select('id')
+          .maybeSingle();
+
+        if (updateError) {
+          throw new GameError(ErrorType.CONNECTION_LOST, updateError.message);
+        }
+
+        if (!updatedGame) {
+          throw new GameError(
+            ErrorType.CONNECTION_LOST,
+            'Start game failed. Apply latest database migrations to enable player-controlled start.'
+          );
+        }
+        return;
+      }
+
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    if (result?.success === false) {
+      throw new GameError(ErrorType.CONNECTION_LOST, result.message || 'Failed to start game');
     }
   }
 
@@ -448,13 +473,32 @@ export class GameService {
   /**
    * Manually advance to the next round (Host only)
    */
-  static async advanceToNextRound(gameId: string): Promise<void> {
+  static async advanceToNextRound(gameId: string, playerId: string): Promise<void> {
     const supabase = getSupabase();
-    const { error } = await supabase.rpc('advance_to_next_round', {
-      p_game_id: gameId
+
+    const { data, error } = await supabase.rpc('advance_to_next_round_by_player', {
+      p_game_id: gameId,
+      p_player_id: playerId,
     });
 
-    if (error) throw error;
+    if (error) {
+      // Backward compatibility with old RPC signature.
+      if (error.message?.includes('Could not find the function public.advance_to_next_round_by_player')) {
+        const { error: fallbackError } = await supabase.rpc('advance_to_next_round', {
+          p_game_id: gameId
+        });
+        if (fallbackError) {
+          throw new GameError(ErrorType.CONNECTION_LOST, fallbackError.message);
+        }
+        return;
+      }
+      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    if (result?.success === false) {
+      throw new GameError(ErrorType.CONNECTION_LOST, result.message || 'Failed to advance round');
+    }
   }
 
   /**

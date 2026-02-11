@@ -48,23 +48,6 @@ export const Lobby: React.FC = () => {
           } else {
             // Keep state in sync while waiting
             useGameStore.setState({ game: freshGame, isPhaseCaptain, players: freshPlayers });
-
-            // Auto-repair: If game has no captain, let a connected player claim the role
-            if (!freshGame.phase_captain_id && currentPlayer) {
-              console.log('[Lobby] Game has no captain! Attempting captain claim...');
-              try {
-                const claimedCaptainId = await GameService.claimPhaseCaptain(freshGame.id, currentPlayer.id);
-                if (claimedCaptainId) {
-                  useGameStore.setState({
-                    game: { ...freshGame, phase_captain_id: claimedCaptainId },
-                    players: freshPlayers,
-                    isPhaseCaptain: currentPlayer.id === claimedCaptainId
-                  });
-                }
-              } catch (claimError) {
-                console.error('Failed to claim captain role:', claimError);
-              }
-            }
           }
         }
       } catch (error) {

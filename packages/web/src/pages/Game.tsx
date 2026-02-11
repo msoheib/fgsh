@@ -304,7 +304,7 @@ export const Game: React.FC = () => {
     if (isFinalRound) {
       try {
         const { GameService } = await import('@fakash/shared');
-        await GameService.endGame(game.id);
+        await GameService.advanceToNextRound(game.id, currentPlayer.id);
       } catch (err) {
         console.error('Failed to end game:', err);
       }
@@ -316,7 +316,7 @@ export const Game: React.FC = () => {
 
     try {
       const { GameService } = await import('@fakash/shared');
-      await GameService.advanceToNextRound(game.id);
+      await GameService.advanceToNextRound(game.id, currentPlayer.id);
       
       const nextRoundNumber = currentRound.round_number + 1;
       // Start the round logic (creation) will handle the rest via effects
