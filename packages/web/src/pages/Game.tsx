@@ -24,11 +24,16 @@ export const Game: React.FC = () => {
   const [answerInput, setAnswerInput] = useState('');
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
+  const [reviewCountdown, setReviewCountdown] = useState(0);
   const roundCreationRef = useRef<number | null>(null);
   const isCreatingRoundRef = useRef<boolean>(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? players[0]?.id ?? null;
   const canControlFlow = !!currentPlayer && (controllerPlayerId ? currentPlayer.id === controllerPlayerId : true);
+  const revealEstimateSeconds = Math.ceil(
+    ((Math.max(allAnswers.length, 2) * GAME_CONFIG.TV_REVEAL_STEP_MS) + GAME_CONFIG.TV_REVEAL_FINISH_BUFFER_MS) / 1000
+  );
+  const reviewLockSeconds = Math.max(GAME_CONFIG.RESULTS_DISPLAY_DURATION, revealEstimateSeconds);
 
   // Recovery function
   const recoverRoundState = useCallback(async () => {
@@ -229,6 +234,21 @@ export const Game: React.FC = () => {
     })();
   }, [game, roundStatus]);
 
+  // Enforce minimum review time before controller can advance.
+  useEffect(() => {
+    if (roundStatus !== 'completed' || !currentRound) {
+      setReviewCountdown(0);
+      return;
+    }
+
+    setReviewCountdown(reviewLockSeconds);
+    const countdownInterval = setInterval(() => {
+      setReviewCountdown((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(countdownInterval);
+  }, [roundStatus, currentRound?.id, reviewLockSeconds]);
+
   // Loading states - static, no animation
   if (!game || !currentPlayer) {
     return (
@@ -299,7 +319,7 @@ export const Game: React.FC = () => {
   const isFinalRound = currentRound.round_number === game.round_count;
 
   const handleNextRound = async () => {
-    if (!canControlFlow) return;
+    if (!canControlFlow || reviewCountdown > 0) return;
 
     if (isFinalRound) {
       try {
@@ -424,12 +444,28 @@ export const Game: React.FC = () => {
             <p className="text-lg mb-4">📺 تابع الكشف على الشاشة</p>
 
             {canControlFlow && (
-              <button
-                onClick={handleNextRound}
-                className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold"
-              >
-                {isFinalRound ? 'النتائج' : 'التالي ➡️'}
-              </button>
+              <div>
+                {reviewCountdown > 0 && (
+                  <p className="text-xs text-white/60 mb-2">
+                    وقت المراجعة: {reviewCountdown} ثانية
+                  </p>
+                )}
+                <button
+                  onClick={handleNextRound}
+                  disabled={reviewCountdown > 0}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50"
+                >
+                  {reviewCountdown > 0
+                    ? `انتظر ${reviewCountdown} ثانية`
+                    : (isFinalRound ? 'النتائج' : 'التالي ➡️')}
+                </button>
+              </div>
+            )}
+
+            {!canControlFlow && (
+              <p className="text-xs text-white/60">
+                في انتظار قائد الجولة للانتقال
+              </p>
             )}
           </div>
         )}

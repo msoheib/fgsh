@@ -550,7 +550,10 @@ export const useGameStore = create<GameState>((set, get) => ({
 
           if (status === 'completed') {
             const minReviewMs = GAME_CONFIG.RESULTS_DISPLAY_DURATION * 1000;
-            const revealEstimateMs = Math.max(0, currentState.allAnswers.length * 4000 + 5000);
+            const revealEstimateMs = Math.max(
+              0,
+              (currentState.allAnswers.length * GAME_CONFIG.TV_REVEAL_STEP_MS) + GAME_CONFIG.TV_REVEAL_FINISH_BUFFER_MS
+            );
             displayReviewUntilTs = Date.now() + Math.max(minReviewMs, revealEstimateMs);
           }
         },
@@ -589,24 +592,8 @@ export const useGameStore = create<GameState>((set, get) => ({
             set({ roundEndResetTimeout: null });
           } else {
             console.log('➡️ Preparing for next round...');
-            const currentRoundNumber = currentGame.current_round;
-
-            // Wait to show scores, then clear for next round
-            const timeoutId = setTimeout(() => {
-              const freshGame = get().game;
-              if (freshGame && freshGame.current_round === currentRoundNumber) {
-                console.log('🧹 Resetting round state after round', currentRoundNumber);
-                import('./roundStore').then(({ useRoundStore }) => {
-                  useRoundStore.getState().reset();
-                });
-                set({ roundEndResetTimeout: null });
-              } else {
-                console.log('⏭️ Round already advanced, skipping reset');
-                set({ roundEndResetTimeout: null });
-              }
-            }, GAME_CONFIG.RESULTS_DISPLAY_DURATION * 1000);
-
-            set({ roundEndResetTimeout: timeoutId });
+            // Manual progression mode: keep completed phase visible until controller advances.
+            set({ roundEndResetTimeout: null });
           }
         },
         onConnected: () => {
@@ -898,25 +885,8 @@ export const useGameStore = create<GameState>((set, get) => ({
             // Game will be marked as finished by host
           } else {
             console.log('➡️ Preparing for next round...');
-            const currentRoundNumber = currentGame.current_round;
-
-            // Wait a moment to show scores, then clear for next round
-            const timeoutId = setTimeout(() => {
-              // Only reset if game hasn't advanced to next round yet
-              const freshGame = get().game;
-              if (freshGame && freshGame.current_round === currentRoundNumber) {
-                console.log('🧹 Resetting round state after round', currentRoundNumber);
-                import('./roundStore').then(({ useRoundStore }) => {
-                  useRoundStore.getState().reset();
-                });
-                set({ roundEndResetTimeout: null });
-              } else {
-                console.log('⏭️ Round already advanced, skipping reset');
-                set({ roundEndResetTimeout: null });
-              }
-            }, GAME_CONFIG.RESULTS_DISPLAY_DURATION * 1000); // Convert seconds to milliseconds
-
-            set({ roundEndResetTimeout: timeoutId });
+            // Manual progression mode: keep completed phase visible until controller advances.
+            set({ roundEndResetTimeout: null });
           }
         },
         onConnected: () => {
@@ -1225,7 +1195,10 @@ export const useGameStore = create<GameState>((set, get) => ({
 
             if (status === 'completed') {
               const minReviewMs = GAME_CONFIG.RESULTS_DISPLAY_DURATION * 1000;
-              const revealEstimateMs = Math.max(0, currentState.allAnswers.length * 4000 + 5000);
+              const revealEstimateMs = Math.max(
+                0,
+                (currentState.allAnswers.length * GAME_CONFIG.TV_REVEAL_STEP_MS) + GAME_CONFIG.TV_REVEAL_FINISH_BUFFER_MS
+              );
               displayReviewUntilTs = Date.now() + Math.max(minReviewMs, revealEstimateMs);
             }
 
@@ -1400,11 +1373,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           if (currentGame.current_round >= currentGame.round_count) {
             console.log('🎉 Game complete!');
           } else {
-            setTimeout(() => {
-              import('./roundStore').then(({ useRoundStore }) => {
-                useRoundStore.getState().reset();
-              });
-            }, 3000);
+            // Manual progression mode: keep completed phase visible until controller advances.
+            set({ roundEndResetTimeout: null });
           }
         },
         onAnswerSubmitted: (playerId: string, roundId: string) => {

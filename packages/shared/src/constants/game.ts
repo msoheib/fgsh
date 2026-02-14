@@ -19,6 +19,9 @@ export const GAME_CONFIG = {
   ANSWER_TIMER: 30,
   VOTING_TIMER: 20,
   RESULTS_DISPLAY_DURATION: 30,
+  // TV reveal pacing (milliseconds)
+  TV_REVEAL_STEP_MS: 6500,
+  TV_REVEAL_FINISH_BUFFER_MS: 8000,
 
   // Score points
   POINTS: {

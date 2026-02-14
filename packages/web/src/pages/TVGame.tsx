@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Logo } from '../components/Logo';
 import { EndRoomButton } from '../components/EndRoomButton';
-import { useGameStore, useRoundStore, RoundService, getRoundMultiplier } from '@fakash/shared';
+import { useGameStore, useRoundStore, RoundService, getRoundMultiplier, GAME_CONFIG } from '@fakash/shared';
 import {
   QuestionReveal,
   AnimatedCard,
@@ -376,7 +376,7 @@ export const TVGame: React.FC = () => {
         confetti.celebration();
         setTimeout(() => setShowConfetti(false), 5000);
       }
-    }, 4000); // 4 seconds per answer
+    }, GAME_CONFIG.TV_REVEAL_STEP_MS);
 
     return () => clearTimeout(timer);
   }, [isRevealing, currentRevealIndex, revealData.length]);
