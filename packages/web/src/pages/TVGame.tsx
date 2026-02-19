@@ -294,11 +294,20 @@ export const TVGame: React.FC = () => {
   const revealForRoundIdRef = useRef<string | null>(null); // Track which round reveal is for
   const confetti = useConfetti();
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
+  const displayRoundNumber = Math.max(game?.current_round ?? 0, 1);
   const isAwaitingStageCategorySelection = !!game
     && game.status === 'playing'
     && !currentRound
     && game.current_round > 0
     && isStageStartRound(game.current_round);
+  const shouldShowCategorySelectionWait = !!game
+    && game.status === 'playing'
+    && !currentRound
+    && (
+      isAwaitingStageCategorySelection ||
+      // Handle short sync windows where current_round may still be 0 on TV.
+      isStageStartRound(displayRoundNumber)
+    );
 
   const combinedAnswers = useMemo(() => {
     const grouped = new Map<string, { id: string; answer_text: string }>();
@@ -529,13 +538,13 @@ export const TVGame: React.FC = () => {
   }
 
   // Category selection waiting state (stage starts: rounds 1, 4, 7)
-  if (game && isAwaitingStageCategorySelection) {
+  if (game && shouldShowCategorySelectionWait) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-primary">
         <ParticleBackground />
         <div className="relative z-10 text-center glass rounded-3xl px-10 py-8 border border-white/20">
           <p className="text-xl text-white/70 mb-2">
-            الجولة {game.current_round} / {game.round_count}
+            الجولة {displayRoundNumber} / {game.round_count}
           </p>
           <p className="text-4xl font-bold mb-3">القائد يختار فئة السؤال</p>
           <p className="text-2xl text-white/70">الوقت المتبقي: {categoryWaitSecondsLeft} ثانية</p>
