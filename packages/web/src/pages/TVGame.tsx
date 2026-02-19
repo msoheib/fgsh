@@ -156,6 +156,10 @@ function getStageInfo(roundNumber: number): { stageNumber: number; questionInSta
   return { stageNumber: 3, questionInStage: 1, totalQuestionsInStage: 1 };
 }
 
+function isStageStartRound(roundNumber: number): boolean {
+  return roundNumber === 1 || roundNumber === 4 || roundNumber === 7;
+}
+
 const AnswerRevealCard: React.FC<{ answer: RevealAnswer; isActive: boolean }> = ({
   answer,
   isActive,
@@ -285,10 +289,16 @@ export const TVGame: React.FC = () => {
   const [revealData, setRevealData] = useState<RevealAnswer[]>([]);
   const [currentRevealIndex, setCurrentRevealIndex] = useState(0);
   const [revealComplete, setRevealComplete] = useState(false);
+  const [categoryWaitSecondsLeft, setCategoryWaitSecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const revealForRoundIdRef = useRef<string | null>(null); // Track which round reveal is for
   const confetti = useConfetti();
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
+  const isAwaitingStageCategorySelection = !!game
+    && game.status === 'playing'
+    && !currentRound
+    && game.current_round > 0
+    && isStageStartRound(game.current_round);
 
   const combinedAnswers = useMemo(() => {
     const grouped = new Map<string, { id: string; answer_text: string }>();
@@ -502,8 +512,36 @@ export const TVGame: React.FC = () => {
     return () => clearTimeout(timer);
   }, [game, currentRound, question, isRecovering, recoverRoundState]);
 
+  // Show countdown while captain selects the next stage category.
+  useEffect(() => {
+    if (!isAwaitingStageCategorySelection) return;
+
+    setCategoryWaitSecondsLeft(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
+    const interval = setInterval(() => {
+      setCategoryWaitSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isAwaitingStageCategorySelection, game?.id, game?.current_round]);
+
   if (!game || !isDisplayMode) {
     return null;
+  }
+
+  // Category selection waiting state (stage starts: rounds 1, 4, 7)
+  if (game && isAwaitingStageCategorySelection) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-primary">
+        <ParticleBackground />
+        <div className="relative z-10 text-center glass rounded-3xl px-10 py-8 border border-white/20">
+          <p className="text-xl text-white/70 mb-2">
+            الجولة {game.current_round} / {game.round_count}
+          </p>
+          <p className="text-4xl font-bold mb-3">القائد يختار فئة السؤال</p>
+          <p className="text-2xl text-white/70">الوقت المتبقي: {categoryWaitSecondsLeft} ثانية</p>
+        </div>
+      </div>
+    );
   }
 
   // Loading state
