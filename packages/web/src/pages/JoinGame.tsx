@@ -119,21 +119,21 @@ export const JoinGame: React.FC = () => {
 
             <div className="flex flex-col sm:flex-row gap-3 sm:gap-4">
               <GradientButton
-                variant="cyan"
-                onClick={() => setStep('code')}
-                className="flex-1"
-                disabled={isLoading}
-              >
-                العودة
-              </GradientButton>
-
-              <GradientButton
                 variant="pink"
                 onClick={handleJoinGame}
                 className="flex-1"
                 disabled={isLoading}
               >
                 {isLoading ? <LoadingSpinner size="sm" /> : 'بدأ اللعبة'}
+              </GradientButton>
+
+              <GradientButton
+                variant="cyan"
+                onClick={() => setStep('code')}
+                className="flex-1"
+                disabled={isLoading}
+              >
+                العودة
               </GradientButton>
             </div>
           </>

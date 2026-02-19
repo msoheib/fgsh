@@ -4,19 +4,19 @@ import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
 import { LoadingSpinner } from '../components/LoadingSpinner';
-import { useGameStore, useRoundStore, GAME_CONFIG, useAuthStore, PaymentService, clearGameSession, GameService } from '@fakash/shared';
+import { useGameStore, useRoundStore, useAuthStore, PaymentService, clearGameSession, GameService } from '@fakash/shared';
 import { AuthModal } from '../components/auth';
 import { UpgradeModal } from '../components/payment';
 
 // All games are created in TV Display Mode only
 // The creator and all players join via QR code on their phones
 export const CreateGame: React.FC = () => {
+  const FIXED_ROUND_COUNT = 7; // 3 + 3 + 1 stage layout
+  const FIXED_MAX_PLAYERS = 10;
+
   const navigate = useNavigate();
   const { createGameAsDisplay, isLoading, error } = useGameStore();
   const { user, loading: authLoading } = useAuthStore();
-
-  const [roundCount, setRoundCount] = useState(4);
-  const [maxPlayers, setMaxPlayers] = useState(10);
 
   // Auth modals
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -74,8 +74,8 @@ export const CreateGame: React.FC = () => {
       
       // Always create in TV Display Mode
       await createGameAsDisplay({
-        roundCount,
-        maxPlayers,
+        roundCount: FIXED_ROUND_COUNT,
+        maxPlayers: FIXED_MAX_PLAYERS,
       });
       // Navigate to TV lobby (display screen)
       navigate('/tv/lobby');
@@ -133,58 +133,8 @@ export const CreateGame: React.FC = () => {
         {/* TV Mode Info */}
         <div className="p-4 bg-secondary-main/20 border border-secondary-main/50 rounded-2xl mb-6">
           <p className="text-sm sm:text-base text-center">
-            📱 ستظهر شاشة العرض على هذا الجهاز. امسح رمز QR من هاتفك للانضمام كلاعب
+            📱 ستظهر شاشة العرض على هذا الجهاز. الجولة ثابتة: 3 + 3 + 1 أسئلة
           </p>
-        </div>
-
-        <div className="space-y-5 sm:space-y-6">
-          {/* Round count */}
-          <div>
-            <label className="block text-right mb-2 sm:mb-3 text-base sm:text-lg font-semibold">
-              عدد الجولات
-            </label>
-            <div className="grid grid-cols-4 gap-2 sm:gap-3">
-              {GAME_CONFIG.ROUND_OPTIONS.map((count) => (
-                <button
-                  key={count}
-                  onClick={() => setRoundCount(count)}
-                  className={`h-16 sm:h-20 rounded-2xl font-bold text-lg sm:text-xl transition-all ${
-                    roundCount === count
-                      ? 'bg-gradient-to-br from-secondary-main to-secondary-light shadow-glow-cyan'
-                      : 'glass hover:bg-white/20'
-                  }`}
-                >
-                  {count}
-                </button>
-              ))}
-            </div>
-          </div>
-
-          {/* Max players */}
-          <div>
-            <label className="block text-right mb-2 sm:mb-3 text-base sm:text-lg font-semibold">
-              عدد اللاعبين
-            </label>
-            <div className="flex items-center justify-center gap-3 sm:gap-4">
-              <button
-                onClick={() => setMaxPlayers(Math.max(4, maxPlayers - 1))}
-                className="w-12 h-12 sm:w-14 sm:h-14 rounded-full glass hover:bg-white/20 text-2xl font-bold flex items-center justify-center"
-                disabled={maxPlayers <= GAME_CONFIG.MIN_PLAYERS}
-              >
-                −
-              </button>
-              <div className="w-28 h-16 sm:w-32 sm:h-20 glass rounded-2xl flex items-center justify-center">
-                <span className="text-3xl sm:text-4xl font-bold">{maxPlayers}</span>
-              </div>
-              <button
-                onClick={() => setMaxPlayers(Math.min(10, maxPlayers + 1))}
-                className="w-12 h-12 sm:w-14 sm:h-14 rounded-full glass hover:bg-white/20 text-2xl font-bold flex items-center justify-center"
-                disabled={maxPlayers >= GAME_CONFIG.MAX_PLAYERS}
-              >
-                +
-              </button>
-            </div>
-          </div>
         </div>
 
         {error && (
@@ -195,21 +145,21 @@ export const CreateGame: React.FC = () => {
 
         <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 mt-6 sm:mt-8">
           <GradientButton
-            variant="cyan"
-            onClick={() => navigate(-1)}
-            className="flex-1"
-            disabled={isLoading}
-          >
-            العودة
-          </GradientButton>
-
-          <GradientButton
             variant="pink"
             onClick={handleCreateGame}
             className="flex-1"
             disabled={isLoading || isCheckingEntitlement}
           >
             {isLoading || isCheckingEntitlement ? <LoadingSpinner size="sm" /> : 'إنشاء غرفة'}
+          </GradientButton>
+
+          <GradientButton
+            variant="cyan"
+            onClick={() => navigate(-1)}
+            className="flex-1"
+            disabled={isLoading}
+          >
+            العودة
           </GradientButton>
         </div>
       </GlassCard>

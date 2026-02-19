@@ -274,7 +274,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               hasSubmittedAnswer: false,
               myVote: null,
               hasSubmittedVote: false,
-              totalRounds: get().game?.round_count || 4,
+              totalRounds: get().game?.round_count || GAME_CONFIG.DEFAULT_ROUNDS,
               isLoading: false,
             });
           });
@@ -787,7 +787,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               hasSubmittedAnswer: false,
               myVote: null,
               hasSubmittedVote: false,
-              totalRounds: get().game?.round_count || 4,
+              totalRounds: get().game?.round_count || GAME_CONFIG.DEFAULT_ROUNDS,
               isLoading: false,
             });
           });

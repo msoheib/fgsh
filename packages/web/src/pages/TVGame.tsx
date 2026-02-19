@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Logo } from '../components/Logo';
@@ -142,6 +142,20 @@ interface RevealAnswer {
   voteCount: number;
 }
 
+function normalizeAnswerKey(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function getStageInfo(roundNumber: number): { stageNumber: number; questionInStage: number; totalQuestionsInStage: number } {
+  if (roundNumber <= 3) {
+    return { stageNumber: 1, questionInStage: roundNumber, totalQuestionsInStage: 3 };
+  }
+  if (roundNumber <= 6) {
+    return { stageNumber: 2, questionInStage: roundNumber - 3, totalQuestionsInStage: 3 };
+  }
+  return { stageNumber: 3, questionInStage: 1, totalQuestionsInStage: 1 };
+}
+
 const AnswerRevealCard: React.FC<{ answer: RevealAnswer; isActive: boolean }> = ({
   answer,
   isActive,
@@ -273,6 +287,18 @@ export const TVGame: React.FC = () => {
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const revealForRoundIdRef = useRef<string | null>(null); // Track which round reveal is for
   const confetti = useConfetti();
+  const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
+
+  const combinedAnswers = useMemo(() => {
+    const grouped = new Map<string, { id: string; answer_text: string }>();
+    for (const answer of allAnswers) {
+      const key = normalizeAnswerKey(answer.answer_text);
+      if (!grouped.has(key)) {
+        grouped.set(key, { id: answer.id, answer_text: answer.answer_text });
+      }
+    }
+    return Array.from(grouped.values());
+  }, [allAnswers]);
 
   const recoverRoundState = useCallback(async () => {
     if (!game || game.status !== 'playing' || isRecovering) return;
@@ -538,7 +564,7 @@ export const TVGame: React.FC = () => {
             )}
             <div className="glass rounded-2xl px-6 py-3">
               <span className="text-2xl font-bold">
-                الجولة {currentRound.round_number} / {game.round_count}
+                الجولة {stageInfo?.stageNumber ?? 1} / 3 • سؤال {stageInfo?.questionInStage ?? 1} / {stageInfo?.totalQuestionsInStage ?? 1}
               </span>
             </div>
           </div>
@@ -627,7 +653,7 @@ export const TVGame: React.FC = () => {
                     الإجابات المقدمة
                   </h3>
                   <AnimatedCardContainer className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {allAnswers.map((answer: { id: string; answer_text: string }, index: number) => (
+                    {combinedAnswers.map((answer, index: number) => (
                       <AnimatedCard
                         key={answer.id}
                         index={index}

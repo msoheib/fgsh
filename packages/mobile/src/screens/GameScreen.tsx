@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Animated, TextInput, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useGameStore, useRoundStore } from '@fakash/shared';
@@ -24,6 +24,40 @@ export const GameScreen: React.FC = () => {
   const [selectedAnswerId, setSelectedAnswerId] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
   const progressAnim = useRef(new Animated.Value(1)).current;
+
+  const combinedAnswers = useMemo(() => {
+    const grouped = new Map<string, {
+      id: string;
+      answer_text: string;
+      answerIds: string[];
+      playerIds: Set<string>;
+    }>();
+
+    for (const answer of allAnswers) {
+      const key = answer.answer_text.trim().toLocaleLowerCase();
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: answer.id,
+          answer_text: answer.answer_text,
+          answerIds: [answer.id],
+          playerIds: new Set<string>(),
+        });
+      } else {
+        grouped.get(key)!.answerIds.push(answer.id);
+      }
+
+      if (answer.player_id) {
+        grouped.get(key)!.playerIds.add(answer.player_id);
+      }
+    }
+
+    return Array.from(grouped.values()).map((group) => ({
+      id: group.id,
+      answer_text: group.answer_text,
+      voteTargetId: group.answerIds[0],
+      playerIds: Array.from(group.playerIds),
+    }));
+  }, [allAnswers]);
 
   // Guard: redirect if no game or player
   useEffect(() => {
@@ -319,14 +353,6 @@ export const GameScreen: React.FC = () => {
       <Logo size="md" style={styles.logo} />
 
       <View style={styles.contentContainer}>
-        {/* Question Card */}
-        <View style={styles.questionCard}>
-          <View style={styles.questionIconContainer}>
-            <Text style={styles.questionIcon}>؟</Text>
-          </View>
-          <Text style={styles.questionText}>{question.question_text}</Text>
-        </View>
-
         {/* Phase-based content */}
         {roundStatus === 'answering' && (
           <View style={styles.answerInputContainer}>
@@ -369,8 +395,8 @@ export const GameScreen: React.FC = () => {
           <View style={styles.votingContainer}>
             <Text style={styles.votingTitle}>اختر الإجابة الصحيحة</Text>
             <ScrollView style={styles.answersList}>
-              {allAnswers.map((answer) => {
-                const isOwnAnswer = answer.player_id === currentPlayer?.id;
+              {combinedAnswers.map((answer) => {
+                const isOwnAnswer = answer.playerIds.includes(currentPlayer?.id || '');
                 return (
                   <TouchableOpacity
                     key={answer.id}
@@ -380,7 +406,7 @@ export const GameScreen: React.FC = () => {
                       (hasSubmittedVote || isOwnAnswer) && styles.answerCardDisabled,
                       isOwnAnswer && styles.ownAnswerCard,
                     ]}
-                    onPress={() => !isOwnAnswer && handleVote(answer.id)}
+                    onPress={() => !isOwnAnswer && handleVote(answer.voteTargetId)}
                     disabled={hasSubmittedVote || isOwnAnswer}
                     activeOpacity={0.7}
                   >
@@ -444,36 +470,6 @@ const styles = StyleSheet.create({
     flex: 1,
     paddingHorizontal: 20,
     justifyContent: 'space-between',
-  },
-  questionCard: {
-    backgroundColor: 'rgba(139, 92, 246, 0.1)',
-    borderWidth: 2,
-    borderColor: '#8b5cf6',
-    borderRadius: 24,
-    padding: 32,
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  questionIconContainer: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#ec4899',
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 24,
-  },
-  questionIcon: {
-    fontSize: 32,
-    color: '#ffffff',
-    fontWeight: 'bold',
-  },
-  questionText: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#ffffff',
-    textAlign: 'center',
-    lineHeight: 36,
   },
   answerInputContainer: {
     paddingVertical: 24,

@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { useGameStore, GameService } from '@fakash/shared';
 
@@ -66,7 +66,7 @@ export const ResultsScreen: React.FC = () => {
     <View style={styles.container}>
       <View style={styles.contentContainer}>
         {/* Leaderboard Frame */}
-        <View style={styles.leaderboardFrame}>
+        <ScrollView style={styles.leaderboardFrame} contentContainerStyle={styles.leaderboardContent}>
           {sortedPlayers.map((player, index) => {
             const color = PLAYER_COLORS[index % PLAYER_COLORS.length];
             return (
@@ -86,7 +86,7 @@ export const ResultsScreen: React.FC = () => {
               </View>
             );
           })}
-        </View>
+        </ScrollView>
 
         {/* Next Question Button - Only show for phase captain/host when not finished */}
         {canAdvanceRound ? (
@@ -143,11 +143,17 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   leaderboardFrame: {
+    flexGrow: 0,
+    maxHeight: '60%',
     borderWidth: 2,
     borderColor: '#8b5cf6',
     borderRadius: 24,
-    padding: 20,
+    paddingHorizontal: 20,
+    paddingVertical: 12,
     marginBottom: 40,
+  },
+  leaderboardContent: {
+    paddingVertical: 8,
   },
   playerBar: {
     marginBottom: 16,

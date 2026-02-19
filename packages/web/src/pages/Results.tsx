@@ -74,7 +74,7 @@ export const Results: React.FC = () => {
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-primary">
-      <div className="bg-white/10 backdrop-blur rounded-2xl p-6 max-w-xs w-full text-center">
+      <div className="bg-white/10 backdrop-blur rounded-2xl p-4 sm:p-6 w-full max-w-md max-h-[90vh] text-center overflow-hidden">
         {/* Winner */}
         {winner && (
           <div className="mb-4 p-4 bg-yellow-500/20 rounded-xl border border-yellow-500/30">
@@ -85,7 +85,7 @@ export const Results: React.FC = () => {
         )}
 
         {/* Simple Leaderboard */}
-        <div className="mb-4 text-right">
+        <div className="mb-4 text-right overflow-y-auto max-h-[52vh] pr-1">
           {leaderboard.slice(0, 5).map(({ player, rank }) => (
             <div
               key={player.id}

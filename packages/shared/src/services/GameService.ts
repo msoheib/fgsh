@@ -7,11 +7,19 @@ import {
   ErrorType,
 } from '../types';
 import { generateGameCode } from '../utils/gameCode';
-import { validateGameSettings, validatePlayerName, sanitizeText } from '../utils/validation';
+import { validatePlayerName, sanitizeText } from '../utils/validation';
 import { getRandomAvatarColor } from '../utils/avatars';
+import { GAME_CONFIG } from '../constants/game';
 
 export class GameService {
   private static claimCaptainRpcAvailable: boolean | null = null;
+
+  private static getEnforcedSettings(): GameSettings {
+    return {
+      roundCount: GAME_CONFIG.DEFAULT_ROUNDS,
+      maxPlayers: GAME_CONFIG.DEFAULT_MAX_PLAYERS,
+    };
+  }
 
   private static async claimPhaseCaptainIfNeeded(
     gameId: string,
@@ -65,9 +73,10 @@ export class GameService {
    */
   static async createGame(
     hostName: string,
-    settings: GameSettings
+    _settings: GameSettings
   ): Promise<{ game: Game; player: Player }> {
     const supabase = getSupabase();
+    const enforcedSettings = this.getEnforcedSettings();
 
     // Get authenticated user (required for hosts)
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -78,7 +87,6 @@ export class GameService {
 
     // Validate inputs
     validatePlayerName(hostName);
-    validateGameSettings(settings);
 
     const sanitizedName = sanitizeText(hostName);
     let code = generateGameCode();
@@ -109,8 +117,8 @@ export class GameService {
       .from('games')
       .insert({
         code,
-        round_count: settings.roundCount,
-        max_players: settings.maxPlayers,
+        round_count: enforcedSettings.roundCount,
+        max_players: enforcedSettings.maxPlayers,
         status: 'waiting',
         auth_host_id: user.id,
       })
@@ -150,8 +158,9 @@ export class GameService {
   /**
    * Create game for TV display mode (no player)
    */
-  static async createGameForDisplay(settings: GameSettings): Promise<Game> {
+  static async createGameForDisplay(_settings: GameSettings): Promise<Game> {
     const supabase = getSupabase();
+    const enforcedSettings = this.getEnforcedSettings();
 
     // Get authenticated user (required for hosts)
     const { data: { user }, error: authError } = await supabase.auth.getUser();
@@ -159,9 +168,6 @@ export class GameService {
     if (authError || !user) {
       throw new GameError(ErrorType.INVALID_INPUT, 'يجب تسجيل الدخول لإنشاء لعبة');
     }
-
-    // Validate settings
-    validateGameSettings(settings);
 
     let code = generateGameCode();
     let attempts = 0;
@@ -191,8 +197,8 @@ export class GameService {
       .from('games')
       .insert({
         code,
-        round_count: settings.roundCount,
-        max_players: settings.maxPlayers,
+        round_count: enforcedSettings.roundCount,
+        max_players: enforcedSettings.maxPlayers,
         status: 'waiting',
         auth_host_id: user.id,
         // host_id and phase_captain_id will be set when first player joins

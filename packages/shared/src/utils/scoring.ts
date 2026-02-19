@@ -26,6 +26,12 @@ export function calculateRoundScores(
 
   // Create a map of answer_id -> votes
   const votesByAnswer = new Map<string, Vote[]>();
+  const answersById = new Map<string, PlayerAnswer>();
+
+  answers.forEach((answer) => {
+    answersById.set(answer.id, answer);
+  });
+
   votes.forEach((vote) => {
     if (!votesByAnswer.has(vote.answer_id)) {
       votesByAnswer.set(vote.answer_id, []);
@@ -33,59 +39,40 @@ export function calculateRoundScores(
     votesByAnswer.get(vote.answer_id)!.push(vote);
   });
 
-  answers.forEach((answer) => {
-    const votesForAnswer = votesByAnswer.get(answer.id) || [];
-    let points = 0;
-    let reason: ScoreResult['reason'];
+  // Vote outcomes for voters: truth reward or lie penalty
+  votes.forEach((vote) => {
+    const votedAnswer = answersById.get(vote.answer_id);
+    if (!votedAnswer) return;
 
-    if (answer.is_correct) {
-      // This is the correct answer - players who voted for it get points
-      votesForAnswer.forEach((vote) => {
-        scores.push({
-          player_id: vote.voter_id,
-          points_earned: GAME_CONFIG.POINTS.CORRECT_ANSWER * multiplier,
-          reason: 'correct_answer',
-        });
+    if (votedAnswer.is_correct) {
+      scores.push({
+        player_id: vote.voter_id,
+        points_earned: GAME_CONFIG.POINTS.CORRECT_ANSWER * multiplier,
+        reason: 'correct_answer',
       });
     } else {
-      // This is a fake answer - player gets points for each vote
-      // Skip system-inserted answers (player_id = null)
-      if (!answer.player_id) return;
-
-      points = (votesForAnswer.length * GAME_CONFIG.POINTS.PER_FOOLED_PLAYER) * multiplier;
-
-      // Bonus for perfect fake (nobody voted for it AND it wasn't correct)
-      if (votesForAnswer.length === 0) {
-        points += (GAME_CONFIG.POINTS.PERFECT_FAKE_BONUS * multiplier);
-        reason = 'perfect_fake';
-      } else {
-        reason = 'fooled_players';
-      }
-
-      if (points > 0) {
-        scores.push({
-          player_id: answer.player_id,
-          points_earned: points,
-          reason,
-        });
-      }
+      scores.push({
+        player_id: vote.voter_id,
+        points_earned: GAME_CONFIG.POINTS.FALL_FOR_LIE_PENALTY * multiplier,
+        reason: 'fell_for_lie',
+      });
     }
   });
 
-  // Find round winner (highest points in this round) and add bonus
-  if (scores.length > 0) {
-    const maxPoints = Math.max(...scores.map((s) => s.points_earned));
-    const winners = scores.filter((s) => s.points_earned === maxPoints);
+  answers.forEach((answer) => {
+    const votesForAnswer = votesByAnswer.get(answer.id) || [];
+    if (answer.is_correct || !answer.player_id) return;
 
-    // Add bonus to winner(s)
-    winners.forEach((winner) => {
-      scores.push({
-        player_id: winner.player_id,
-        points_earned: GAME_CONFIG.POINTS.ROUND_WINNER_BONUS * multiplier,
-        reason: 'round_winner',
-      });
+    // Fake answer owner gains points for each fooled player
+    const points = (votesForAnswer.length * GAME_CONFIG.POINTS.PER_FOOLED_PLAYER) * multiplier;
+    if (points === 0) return;
+
+    scores.push({
+      player_id: answer.player_id,
+      points_earned: points,
+      reason: 'fooled_players',
     });
-  }
+  });
 
   return scores;
 }

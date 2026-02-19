@@ -36,7 +36,7 @@ interface RoundState {
   isLoading: boolean;
 
   // Actions
-  startRound: (gameId: string, roundNum: number, totalRounds: number) => Promise<void>;
+  startRound: (gameId: string, roundNum: number, totalRounds: number, category?: string | null) => Promise<void>;
   submitAnswer: (playerId: string, answer: string) => Promise<void>;
   submitVote: (playerId: string, answerId: string) => Promise<void>;
   setTimeRemaining: (time: number) => void;
@@ -70,10 +70,10 @@ export const useRoundStore = create<RoundState>((set, get) => ({
   isLoading: false,
 
   // Start new round
-  startRound: async (gameId: string, roundNum: number, totalRounds: number) => {
+  startRound: async (gameId: string, roundNum: number, totalRounds: number, category?: string | null) => {
     set({ isLoading: true });
     try {
-      const { round, question } = await RoundService.createRound(gameId, roundNum);
+      const { round, question } = await RoundService.createRound(gameId, roundNum, 'ar', category);
       console.log('🎲 Host: Round created', {
         roundId: round.id,
         roundNumber: round.round_number,

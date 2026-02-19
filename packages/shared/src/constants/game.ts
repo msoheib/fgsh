@@ -10,10 +10,12 @@ export const GAME_CONFIG = {
   DEFAULT_MAX_PLAYERS: 10,
 
   // Round settings
-  MIN_ROUNDS: 4,
-  MAX_ROUNDS: 10,
-  DEFAULT_ROUNDS: 4,
-  ROUND_OPTIONS: [4, 6, 8, 10],
+  MIN_ROUNDS: 7,
+  MAX_ROUNDS: 7,
+  DEFAULT_ROUNDS: 7,
+  ROUND_OPTIONS: [7],
+  STAGE_QUESTION_COUNTS: [3, 3, 1],
+  CATEGORY_SELECTION_TIMER: 10,
 
   // Timer durations (seconds)
   ANSWER_TIMER: 30,
@@ -25,10 +27,11 @@ export const GAME_CONFIG = {
 
   // Score points
   POINTS: {
-    CORRECT_ANSWER: 500,
+    CORRECT_ANSWER: 1000,
     PER_FOOLED_PLAYER: 500,
-    PERFECT_FAKE_BONUS: 1000, // No one voted for your fake answer
-    ROUND_WINNER_BONUS: 250,
+    FALL_FOR_LIE_PENALTY: -500,
+    PERFECT_FAKE_BONUS: 0,
+    ROUND_WINNER_BONUS: 0,
   },
 
   // Connection settings

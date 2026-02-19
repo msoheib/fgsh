@@ -64,31 +64,34 @@ export class ScoringService {
       const roundPoints = aggregatedScores.get(player.id) || 0;
       const newScore = player.score + roundPoints;
 
-      if (roundPoints > 0) {
+      if (roundPoints !== 0) {
+        const safeScore = Math.max(0, newScore);
         await supabase
           .from('players')
-          .update({ score: newScore })
+          .update({ score: safeScore })
           .eq('id', player.id);
 
         updates.push({
           player_id: player.id,
-          new_score: newScore,
+          new_score: safeScore,
         });
       }
     }
 
-    // Update vote points
-    for (const scoreResult of scoreResults) {
-      const vote = votes?.find(
-        (v) => v.voter_id === scoreResult.player_id
-      );
+    // Update vote points_earned (net vote outcome only)
+    const votePointsByVoter = new Map<string, number>();
+    scoreResults
+      .filter((r) => r.reason === 'correct_answer' || r.reason === 'fell_for_lie')
+      .forEach((r) => {
+        votePointsByVoter.set(r.player_id, (votePointsByVoter.get(r.player_id) || 0) + r.points_earned);
+      });
 
-      if (vote) {
-        await supabase
-          .from('votes')
-          .update({ points_earned: scoreResult.points_earned })
-          .eq('id', vote.id);
-      }
+    for (const vote of votes || []) {
+      const points = votePointsByVoter.get(vote.voter_id) || 0;
+      await supabase
+        .from('votes')
+        .update({ points_earned: points })
+        .eq('id', vote.id);
     }
 
     return updates;

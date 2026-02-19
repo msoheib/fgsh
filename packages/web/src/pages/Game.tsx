@@ -1,6 +1,45 @@
-import React, { useEffect, useState, useRef, useCallback } from 'react';
+import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useGameStore, useRoundStore, GAME_CONFIG } from '@fakash/shared';
+
+interface CombinedAnswerOption {
+  id: string;
+  answer_text: string;
+  answerIds: string[];
+  playerIds: string[];
+  voteTargetId: string;
+}
+
+const STAGE_START_ROUNDS = [1, 4, 7];
+
+function isStageStartRound(roundNumber: number): boolean {
+  return STAGE_START_ROUNDS.includes(roundNumber);
+}
+
+function getStageStartRound(roundNumber: number): number {
+  if (roundNumber <= 3) return 1;
+  if (roundNumber <= 6) return 4;
+  return 7;
+}
+
+function getStageInfo(roundNumber: number): { stageNumber: number; questionInStage: number; totalQuestionsInStage: number } {
+  if (roundNumber <= 3) {
+    return { stageNumber: 1, questionInStage: roundNumber, totalQuestionsInStage: 3 };
+  }
+  if (roundNumber <= 6) {
+    return { stageNumber: 2, questionInStage: roundNumber - 3, totalQuestionsInStage: 3 };
+  }
+  return { stageNumber: 3, questionInStage: 1, totalQuestionsInStage: 1 };
+}
+
+function normalizeAnswerKey(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+interface CategoryPromptState {
+  roundNumber: number;
+  options: string[];
+}
 
 // Ultra-minimal player input screen - zero animations for lowest latency
 export const Game: React.FC = () => {
@@ -25,15 +64,124 @@ export const Game: React.FC = () => {
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
   const [reviewCountdown, setReviewCountdown] = useState(0);
+  const [categoryPrompt, setCategoryPrompt] = useState<CategoryPromptState | null>(null);
+  const [categorySelection, setCategorySelection] = useState<string>('');
+  const [categorySecondsLeft, setCategorySecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
   const roundCreationRef = useRef<number | null>(null);
   const isCreatingRoundRef = useRef<boolean>(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const categoryResolverRef = useRef<((value: string | null) => void) | null>(null);
   const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? players[0]?.id ?? null;
   const canControlFlow = !!currentPlayer && (controllerPlayerId ? currentPlayer.id === controllerPlayerId : true);
   const revealEstimateSeconds = Math.ceil(
     ((Math.max(allAnswers.length, 2) * GAME_CONFIG.TV_REVEAL_STEP_MS) + GAME_CONFIG.TV_REVEAL_FINISH_BUFFER_MS) / 1000
   );
   const reviewLockSeconds = Math.max(GAME_CONFIG.RESULTS_DISPLAY_DURATION, revealEstimateSeconds);
+  const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
+
+  const combinedAnswers = useMemo<CombinedAnswerOption[]>(() => {
+    const grouped = new Map<string, {
+      id: string;
+      answer_text: string;
+      answerIds: string[];
+      playerIds: Set<string>;
+    }>();
+
+    for (const answer of allAnswers) {
+      const key = normalizeAnswerKey(answer.answer_text);
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: answer.id,
+          answer_text: answer.answer_text,
+          answerIds: [answer.id],
+          playerIds: new Set<string>(),
+        });
+      } else {
+        grouped.get(key)!.answerIds.push(answer.id);
+      }
+
+      if (answer.player_id) {
+        grouped.get(key)!.playerIds.add(answer.player_id);
+      }
+    }
+
+    return Array.from(grouped.values()).map((group) => ({
+      id: group.id,
+      answer_text: group.answer_text,
+      answerIds: group.answerIds,
+      playerIds: Array.from(group.playerIds),
+      voteTargetId: group.answerIds[0],
+    }));
+  }, [allAnswers]);
+
+  const finishCategorySelection = useCallback((selectedCategory: string | null) => {
+    const resolver = categoryResolverRef.current;
+    categoryResolverRef.current = null;
+    setCategoryPrompt(null);
+    if (resolver) {
+      resolver(selectedCategory);
+    }
+  }, []);
+
+  const requestCategorySelection = useCallback(async (roundNumber: number): Promise<string | null> => {
+    const { getSupabase } = await import('@fakash/shared');
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('questions')
+      .select('category')
+      .eq('language', 'ar')
+      .not('category', 'is', null);
+
+    if (error) {
+      console.error('Failed to load categories:', error);
+      return null;
+    }
+
+    const options = Array.from(
+      new Set((data || [])
+        .map((item) => item.category)
+        .filter((category): category is string => !!category && category.trim().length > 0))
+    );
+
+    if (options.length === 0) {
+      return null;
+    }
+
+    return await new Promise<string | null>((resolve) => {
+      categoryResolverRef.current = resolve;
+      setCategorySelection(options[0]);
+      setCategoryPrompt({ roundNumber, options });
+      setCategorySecondsLeft(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
+    });
+  }, []);
+
+  const getCategoryForRound = useCallback(async (roundNumber: number): Promise<string | null> => {
+    if (!game) return null;
+
+    if (isStageStartRound(roundNumber)) {
+      return requestCategorySelection(roundNumber);
+    }
+
+    const stageStartRound = getStageStartRound(roundNumber);
+    const { getSupabase } = await import('@fakash/shared');
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('game_rounds')
+      .select('question:questions(category)')
+      .eq('game_id', game.id)
+      .eq('round_number', stageStartRound)
+      .maybeSingle();
+
+    if (error) {
+      console.error('Failed to load stage category:', error);
+      return null;
+    }
+
+    const stageCategory = (data as any)?.question?.category;
+    return stageCategory || null;
+  }, [game, requestCategorySelection]);
 
   // Recovery function
   const recoverRoundState = useCallback(async () => {
@@ -117,6 +265,34 @@ export const Game: React.FC = () => {
     }
   }, [isDisplayMode, navigate, rehydrationAttempted]);
 
+  useEffect(() => {
+    return () => {
+      if (categoryResolverRef.current) {
+        categoryResolverRef.current(null);
+        categoryResolverRef.current = null;
+      }
+    };
+  }, []);
+
+  // Category selection countdown (captain only)
+  useEffect(() => {
+    if (!categoryPrompt) return;
+
+    setCategorySecondsLeft(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
+    const interval = setInterval(() => {
+      setCategorySecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [categoryPrompt?.roundNumber]);
+
+  // Auto-select category when selection timer ends
+  useEffect(() => {
+    if (!categoryPrompt || categorySecondsLeft > 0) return;
+    const fallback = categorySelection || categoryPrompt.options[0] || null;
+    finishCategorySelection(fallback);
+  }, [categoryPrompt, categorySecondsLeft, categorySelection, finishCategorySelection]);
+
   // Navigation guard
   useEffect(() => {
     if (!rehydrationAttempted) return;
@@ -147,7 +323,8 @@ export const Game: React.FC = () => {
       (async () => {
         try {
           const { startRound } = useRoundStore.getState();
-          await startRound(game.id, game.current_round, game.round_count);
+          const selectedCategory = await getCategoryForRound(game.current_round);
+          await startRound(game.id, game.current_round, game.round_count, selectedCategory);
         } catch (err: any) {
           if (!err.message?.includes('duplicate key')) {
             roundCreationRef.current = null;
@@ -157,7 +334,7 @@ export const Game: React.FC = () => {
         }
       })();
     }
-  }, [game, currentRound, canControlFlow, rehydrationAttempted]);
+  }, [game, currentRound, canControlFlow, rehydrationAttempted, getCategoryForRound]);
 
   // Timer countdown (background)
   useEffect(() => {
@@ -215,10 +392,10 @@ export const Game: React.FC = () => {
 
   // Recovery if stuck
   useEffect(() => {
-    if (!game || !currentPlayer || (currentRound && question) || game.status !== 'playing' || isRecovering) return;
+    if (!game || !currentPlayer || (currentRound && question) || game.status !== 'playing' || isRecovering || !!categoryPrompt) return;
     const timer = setTimeout(() => recoverRoundState(), 3000);
     return () => clearTimeout(timer);
-  }, [game, currentPlayer, currentRound, question, isRecovering, recoverRoundState]);
+  }, [game, currentPlayer, currentRound, question, isRecovering, recoverRoundState, categoryPrompt]);
 
   // Sync scores on round complete
   useEffect(() => {
@@ -283,6 +460,41 @@ export const Game: React.FC = () => {
     );
   }
 
+  if (categoryPrompt && canControlFlow) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
+        <div className="bg-white/10 backdrop-blur rounded-2xl p-5 max-w-sm w-full">
+          <p className="text-sm text-white/70 text-center mb-2">اختيار الفئة - الجولة {categoryPrompt.roundNumber}/7</p>
+          <p className="text-lg font-bold text-center mb-1">اختر فئة السؤال</p>
+          <p className="text-xs text-white/60 text-center mb-4">ينتهي الاختيار تلقائياً خلال {categorySecondsLeft} ثوانٍ</p>
+
+          <div className="space-y-2 mb-4 max-h-56 overflow-y-auto">
+            {categoryPrompt.options.map((category) => (
+              <button
+                key={category}
+                onClick={() => setCategorySelection(category)}
+                className={`w-full py-3 px-3 rounded-xl text-right ${
+                  categorySelection === category
+                    ? 'bg-cyan-500 text-white'
+                    : 'bg-white/10 text-white/90'
+                }`}
+              >
+                {category}
+              </button>
+            ))}
+          </div>
+
+          <button
+            onClick={() => finishCategorySelection(categorySelection || categoryPrompt.options[0] || null)}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold"
+          >
+            متابعة
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentRound || !question) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
@@ -337,11 +549,6 @@ export const Game: React.FC = () => {
     try {
       const { GameService } = await import('@fakash/shared');
       await GameService.advanceToNextRound(game.id, currentPlayer.id);
-      
-      const nextRoundNumber = currentRound.round_number + 1;
-      // Start the round logic (creation) will handle the rest via effects
-      const { startRound } = useRoundStore.getState();
-      await startRound(game.id, nextRoundNumber, game.round_count);
     } catch (err) {
       console.error('Failed to advance round:', err);
     }
@@ -364,7 +571,7 @@ export const Game: React.FC = () => {
 
       {/* Minimal header */}
       <p className="text-xs text-white/40 mb-3">
-        الجولة {currentRound.round_number}/{game.round_count}
+        الجولة {stageInfo?.stageNumber ?? 1}/3 • سؤال {stageInfo?.questionInStage ?? 1}/{stageInfo?.totalQuestionsInStage ?? 1}
         {canControlFlow && ' • 👑'}
       </p>
 
@@ -372,10 +579,6 @@ export const Game: React.FC = () => {
         {/* ANSWERING PHASE */}
         {roundStatus === 'answering' && (
           <div>
-            <p className="text-base font-bold text-center mb-4 p-3 bg-white/5 rounded-xl">
-              {question.question_text}
-            </p>
-
             {!hasSubmittedAnswer ? (
               <>
                 <input
@@ -410,13 +613,13 @@ export const Game: React.FC = () => {
           <div>
             <p className="text-center text-sm mb-3 text-white/60">اختر الإجابة الصحيحة</p>
             <div className="space-y-2">
-              {allAnswers.map((answer) => {
-                const isOwn = answer.player_id === currentPlayer.id;
+              {combinedAnswers.map((answer) => {
+                const isOwn = answer.playerIds.includes(currentPlayer.id);
                 const isSelected = selectedAnswer === answer.id;
                 return (
                   <button
                     key={answer.id}
-                    onClick={() => !hasSubmittedVote && !isOwn && handleSubmitVote(answer.id)}
+                    onClick={() => !hasSubmittedVote && !isOwn && handleSubmitVote(answer.voteTargetId)}
                     disabled={hasSubmittedVote || isOwn}
                     className={`w-full p-3 rounded-xl text-right ${
                       isSelected

@@ -11,13 +11,18 @@ import { validateAnswer, sanitizeText } from '../utils/validation';
 import { GAME_CONFIG } from '../constants/game';
 
 export class RoundService {
+  private static normalizeAnswerKey(value: string): string {
+    return value.trim().toLocaleLowerCase();
+  }
+
   /**
    * Create a new round with a random question
    */
   static async createRound(
     gameId: string,
     roundNumber: number,
-    language: string = 'ar'
+    language: string = 'ar',
+    category?: string | null
   ): Promise<{ round: GameRound; question: Question }> {
     const supabase = getSupabase();
 
@@ -42,13 +47,32 @@ export class RoundService {
 
     const usedIds = usedQuestionIds?.map((r) => r.question_id) || [];
 
-    // Get random unused question
-    const { data: questions, error: questionError } = await supabase
+    // Get random unused question (filtered by selected category when provided)
+    let questionQuery = supabase
       .from('questions')
       .select('*')
       .eq('language', language)
       .not('id', 'in', `(${usedIds.length > 0 ? usedIds.join(',') : '00000000-0000-0000-0000-000000000000'})`)
-      .limit(10);
+      .limit(30);
+
+    if (category) {
+      questionQuery = questionQuery.eq('category', category);
+    }
+
+    let { data: questions, error: questionError } = await questionQuery;
+
+    // Graceful fallback: if no question exists in this category, pick any available category
+    if ((!questions || questions.length === 0) && category) {
+      const fallback = await supabase
+        .from('questions')
+        .select('*')
+        .eq('language', language)
+        .not('id', 'in', `(${usedIds.length > 0 ? usedIds.join(',') : '00000000-0000-0000-0000-000000000000'})`)
+        .limit(30);
+
+      questions = fallback.data;
+      questionError = fallback.error;
+    }
 
     if (questionError || !questions || questions.length === 0) {
       throw new GameError(ErrorType.CONNECTION_LOST, 'No questions available');
@@ -336,15 +360,58 @@ export class RoundService {
       }
     }
 
-    // Build reveal data
-    const revealAnswers = (answers || []).map((ans) => ({
-      id: ans.id,
-      text: ans.answer_text,
-      isCorrect: ans.is_correct,
-      authorId: ans.player_id,
-      authorName: ans.player ? (ans.player as any).user_name : null,
-      voters: votesByAnswer.get(ans.id) || [],
-      voteCount: (votesByAnswer.get(ans.id) || []).length,
+    // Build grouped reveal data (same text answers are shown once)
+    const grouped = new Map<string, {
+      id: string;
+      text: string;
+      isCorrect: boolean;
+      authorIds: Set<string>;
+      authorNames: Set<string>;
+      voters: Map<string, { id: string; name: string }>;
+      answerIds: string[];
+    }>();
+
+    for (const ans of answers || []) {
+      const key = this.normalizeAnswerKey(ans.answer_text);
+      if (!grouped.has(key)) {
+        grouped.set(key, {
+          id: ans.id,
+          text: ans.answer_text,
+          isCorrect: ans.is_correct,
+          authorIds: new Set<string>(),
+          authorNames: new Set<string>(),
+          voters: new Map<string, { id: string; name: string }>(),
+          answerIds: [],
+        });
+      }
+
+      const group = grouped.get(key)!;
+      group.answerIds.push(ans.id);
+      group.isCorrect = group.isCorrect || ans.is_correct;
+
+      if (ans.player_id) {
+        group.authorIds.add(ans.player_id);
+      }
+      if (ans.player) {
+        group.authorNames.add((ans.player as any).user_name);
+      }
+
+      const voters = votesByAnswer.get(ans.id) || [];
+      for (const voter of voters) {
+        group.voters.set(voter.id, voter);
+      }
+    }
+
+    const revealAnswers = Array.from(grouped.values()).map((group) => ({
+      id: group.id,
+      text: group.text,
+      isCorrect: group.isCorrect,
+      authorId: group.isCorrect || group.authorIds.size === 0 ? null : Array.from(group.authorIds)[0],
+      authorName: group.isCorrect
+        ? null
+        : Array.from(group.authorNames).join(' + '),
+      voters: Array.from(group.voters.values()),
+      voteCount: group.voters.size,
     }));
 
     // Sort: lies with votes first, then correct answer last

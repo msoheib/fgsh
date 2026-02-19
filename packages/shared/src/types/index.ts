@@ -71,8 +71,8 @@ export interface Vote {
 
 // Game settings
 export interface GameSettings {
-  roundCount: number; // 4, 6, 8, 10
-  maxPlayers: number; // 4-10
+  roundCount: number; // enforced as 7 (3 + 3 + 1)
+  maxPlayers: number; // enforced as 10
 }
 
 // Real-time events
@@ -118,7 +118,7 @@ export interface GameEndedEvent {
 export interface ScoreResult {
   player_id: string;
   points_earned: number;
-  reason: 'correct_answer' | 'fooled_players' | 'perfect_fake' | 'round_winner';
+  reason: 'correct_answer' | 'fooled_players' | 'fell_for_lie' | 'perfect_fake' | 'round_winner';
 }
 
 export interface RoundResult {
