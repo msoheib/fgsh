@@ -272,6 +272,7 @@ export const TVGame: React.FC = () => {
     question,
     roundStatus,
     allAnswers,
+    playerAnswers,
     timeRemaining,
     setTimeRemaining,
     timerActive,
@@ -523,9 +524,8 @@ export const TVGame: React.FC = () => {
     );
   }
 
-  const submittedCount = players.filter((p: { id: string }) =>
-    allAnswers.some((a: { player_id: string | null }) => a.player_id === p.id)
-  ).length;
+  const submittedCount = playerAnswers.size;
+  const requiredPlayers = currentRound.required_players || players.length;
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-primary">
@@ -616,7 +616,7 @@ export const TVGame: React.FC = () => {
                     <span className="text-6xl font-bold text-secondary-main">
                       {submittedCount}
                     </span>
-                    <span className="text-4xl text-white/60"> / {players.length}</span>
+                    <span className="text-4xl text-white/60"> / {requiredPlayers}</span>
                   </div>
                 </motion.div>
               </motion.div>

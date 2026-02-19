@@ -526,6 +526,13 @@ export const useGameStore = create<GameState>((set, get) => ({
                 roundStatus: round.status,
                 timeRemaining: initialTimeRemaining,
                 timerActive: true,
+                allAnswers: [],
+                playerAnswers: new Map(),
+                playerVotes: new Map(),
+                myAnswer: null,
+                hasSubmittedAnswer: false,
+                myVote: null,
+                hasSubmittedVote: false,
                 totalRounds: get().game?.round_count || 0,
                 isLoading: false,
               });
@@ -557,9 +564,13 @@ export const useGameStore = create<GameState>((set, get) => ({
             displayReviewUntilTs = Date.now() + Math.max(minReviewMs, revealEstimateMs);
           }
         },
-        onAnswerSubmitted: (playerId, _hasSubmitted) => {
+        onAnswerSubmitted: (playerId, roundId) => {
           console.log('📺 [Display Mode] Answer submitted:', playerId);
-          // Display mode just observes
+          import('./roundStore').then(({ useRoundStore }) => {
+            const currentRound = useRoundStore.getState().currentRound;
+            if (currentRound?.id !== roundId) return;
+            useRoundStore.getState().addPlayerAnswer(playerId, true);
+          });
         },
         onVotingStarted: (answers) => {
           console.log('📺 [Display Mode] Voting started with', answers.length, 'answers');

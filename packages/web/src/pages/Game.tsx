@@ -8,6 +8,7 @@ interface CombinedAnswerOption {
   answerIds: string[];
   playerIds: string[];
   voteTargetId: string;
+  hasCorrectAnswer: boolean;
 }
 
 const STAGE_START_ROUNDS = [1, 4, 7];
@@ -67,6 +68,7 @@ export const Game: React.FC = () => {
   const [categoryPrompt, setCategoryPrompt] = useState<CategoryPromptState | null>(null);
   const [categorySelection, setCategorySelection] = useState<string>('');
   const [categorySecondsLeft, setCategorySecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
+  const [categoryWaitSecondsLeft, setCategoryWaitSecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
   const roundCreationRef = useRef<number | null>(null);
   const isCreatingRoundRef = useRef<boolean>(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -78,6 +80,11 @@ export const Game: React.FC = () => {
   );
   const reviewLockSeconds = Math.max(GAME_CONFIG.RESULTS_DISPLAY_DURATION, revealEstimateSeconds);
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
+  const isAwaitingStageCategorySelection = !!game &&
+    game.status === 'playing' &&
+    !currentRound &&
+    game.current_round > 0 &&
+    isStageStartRound(game.current_round);
 
   const combinedAnswers = useMemo<CombinedAnswerOption[]>(() => {
     const grouped = new Map<string, {
@@ -85,6 +92,8 @@ export const Game: React.FC = () => {
       answer_text: string;
       answerIds: string[];
       playerIds: Set<string>;
+      hasCorrectAnswer: boolean;
+      correctAnswerId: string | null;
     }>();
 
     for (const answer of allAnswers) {
@@ -95,9 +104,16 @@ export const Game: React.FC = () => {
           answer_text: answer.answer_text,
           answerIds: [answer.id],
           playerIds: new Set<string>(),
+          hasCorrectAnswer: !!answer.is_correct,
+          correctAnswerId: answer.is_correct ? answer.id : null,
         });
       } else {
-        grouped.get(key)!.answerIds.push(answer.id);
+        const group = grouped.get(key)!;
+        group.answerIds.push(answer.id);
+        if (answer.is_correct) {
+          group.hasCorrectAnswer = true;
+          group.correctAnswerId = answer.id;
+        }
       }
 
       if (answer.player_id) {
@@ -110,7 +126,8 @@ export const Game: React.FC = () => {
       answer_text: group.answer_text,
       answerIds: group.answerIds,
       playerIds: Array.from(group.playerIds),
-      voteTargetId: group.answerIds[0],
+      voteTargetId: group.correctAnswerId || group.answerIds[0],
+      hasCorrectAnswer: group.hasCorrectAnswer,
     }));
   }, [allAnswers]);
 
@@ -292,6 +309,18 @@ export const Game: React.FC = () => {
     const fallback = categorySelection || categoryPrompt.options[0] || null;
     finishCategorySelection(fallback);
   }, [categoryPrompt, categorySecondsLeft, categorySelection, finishCategorySelection]);
+
+  // Waiting countdown for non-captains while the stage captain is choosing a category.
+  useEffect(() => {
+    if (!isAwaitingStageCategorySelection) return;
+
+    setCategoryWaitSecondsLeft(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
+    const interval = setInterval(() => {
+      setCategoryWaitSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [isAwaitingStageCategorySelection, game?.id, game?.current_round]);
 
   // Navigation guard
   useEffect(() => {
@@ -495,6 +524,22 @@ export const Game: React.FC = () => {
     );
   }
 
+  if (!categoryPrompt && isAwaitingStageCategorySelection) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
+        <div className="bg-white/10 backdrop-blur rounded-2xl p-6 max-w-sm w-full text-center">
+          <p className="text-sm text-white/70 mb-2">اختيار الفئة - الجولة {game.current_round}/7</p>
+          <p className="text-lg font-bold mb-1">
+            {canControlFlow ? 'جاري تجهيز اختيار الفئة' : 'القائد يختار فئة السؤال'}
+          </p>
+          <p className="text-xs text-white/60">
+            الوقت المتوقع: {categoryWaitSecondsLeft} ثانية
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   if (!currentRound || !question) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
@@ -614,8 +659,8 @@ export const Game: React.FC = () => {
             <p className="text-center text-sm mb-3 text-white/60">اختر الإجابة الصحيحة</p>
             <div className="space-y-2">
               {combinedAnswers.map((answer) => {
-                const isOwn = answer.playerIds.includes(currentPlayer.id);
-                const isSelected = selectedAnswer === answer.id;
+                const isOwn = !answer.hasCorrectAnswer && answer.playerIds.includes(currentPlayer.id);
+                const isSelected = selectedAnswer === answer.voteTargetId;
                 return (
                   <button
                     key={answer.id}

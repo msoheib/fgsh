@@ -31,6 +31,8 @@ export const GameScreen: React.FC = () => {
       answer_text: string;
       answerIds: string[];
       playerIds: Set<string>;
+      hasCorrectAnswer: boolean;
+      correctAnswerId: string | null;
     }>();
 
     for (const answer of allAnswers) {
@@ -41,9 +43,16 @@ export const GameScreen: React.FC = () => {
           answer_text: answer.answer_text,
           answerIds: [answer.id],
           playerIds: new Set<string>(),
+          hasCorrectAnswer: !!answer.is_correct,
+          correctAnswerId: answer.is_correct ? answer.id : null,
         });
       } else {
-        grouped.get(key)!.answerIds.push(answer.id);
+        const group = grouped.get(key)!;
+        group.answerIds.push(answer.id);
+        if (answer.is_correct) {
+          group.hasCorrectAnswer = true;
+          group.correctAnswerId = answer.id;
+        }
       }
 
       if (answer.player_id) {
@@ -54,8 +63,9 @@ export const GameScreen: React.FC = () => {
     return Array.from(grouped.values()).map((group) => ({
       id: group.id,
       answer_text: group.answer_text,
-      voteTargetId: group.answerIds[0],
+      voteTargetId: group.correctAnswerId || group.answerIds[0],
       playerIds: Array.from(group.playerIds),
+      hasCorrectAnswer: group.hasCorrectAnswer,
     }));
   }, [allAnswers]);
 
@@ -396,13 +406,13 @@ export const GameScreen: React.FC = () => {
             <Text style={styles.votingTitle}>اختر الإجابة الصحيحة</Text>
             <ScrollView style={styles.answersList}>
               {combinedAnswers.map((answer) => {
-                const isOwnAnswer = answer.playerIds.includes(currentPlayer?.id || '');
+                const isOwnAnswer = !answer.hasCorrectAnswer && answer.playerIds.includes(currentPlayer?.id || '');
                 return (
                   <TouchableOpacity
                     key={answer.id}
                     style={[
                       styles.answerCard,
-                      selectedAnswerId === answer.id && styles.answerCardSelected,
+                      selectedAnswerId === answer.voteTargetId && styles.answerCardSelected,
                       (hasSubmittedVote || isOwnAnswer) && styles.answerCardDisabled,
                       isOwnAnswer && styles.ownAnswerCard,
                     ]}
