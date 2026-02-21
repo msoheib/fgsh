@@ -4,6 +4,7 @@ import { motion } from 'framer-motion';
 import { QRCodeSVG } from 'qrcode.react';
 import { Logo } from '../components/Logo';
 import { PlayerAvatar } from '../components/PlayerAvatar';
+import { EndRoomButton } from '../components/EndRoomButton';
 import { useGameStore, ScoringService } from '@fakash/shared';
 import {
   AnimatedCard,
@@ -51,11 +52,31 @@ const ParticleBackground: React.FC = () => (
   </div>
 );
 
+type TVResultsLayout = {
+  columns: number;
+  visiblePlayers: number;
+  compact: boolean;
+};
+
+function getTVResultsLayout(width: number, height: number): TVResultsLayout {
+  // 720p-ish: keep compact cards and fewer rows
+  if (height < 800 || width < 1366) {
+    return { columns: 2, visiblePlayers: 6, compact: true };
+  }
+  // 1080p-ish
+  if (height < 1300 || width < 2560) {
+    return { columns: 2, visiblePlayers: 8, compact: false };
+  }
+  // 1440p/4K-ish
+  return { columns: 3, visiblePlayers: 12, compact: false };
+}
+
 export const TVResults: React.FC = () => {
   const navigate = useNavigate();
   const { game, isDisplayMode } = useGameStore();
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [showCelebration, setShowCelebration] = useState(false);
+  const [layout, setLayout] = useState<TVResultsLayout>({ columns: 2, visiblePlayers: 8, compact: false });
   const gameIdRef = useRef<string | null>(null);
   const hasLoadedRef = useRef(false);
 
@@ -103,6 +124,16 @@ export const TVResults: React.FC = () => {
     fetchLeaderboard();
   }, [game, navigate]);
 
+  useEffect(() => {
+    const updateLayout = () => {
+      setLayout(getTVResultsLayout(window.innerWidth, window.innerHeight));
+    };
+
+    updateLayout();
+    window.addEventListener('resize', updateLayout);
+    return () => window.removeEventListener('resize', updateLayout);
+  }, []);
+
   if (!isDisplayMode) {
     return null;
   }
@@ -110,7 +141,7 @@ export const TVResults: React.FC = () => {
   // Loading state
   if (leaderboard.length === 0 && !hasLoadedRef.current) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-primary">
+      <div className="h-screen flex items-center justify-center bg-gradient-primary overflow-hidden">
         <ParticleBackground />
         <div className="relative z-10 text-center">
           <motion.div
@@ -126,6 +157,7 @@ export const TVResults: React.FC = () => {
 
   const winner = leaderboard[0];
   const joinUrl = `${window.location.origin}/join`;
+  const visibleLeaderboard = leaderboard.slice(0, layout.visiblePlayers);
 
   const getRankGradient = (rank: number) => {
     switch (rank) {
@@ -141,15 +173,19 @@ export const TVResults: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen relative overflow-hidden bg-gradient-primary">
+    <div className="h-screen relative overflow-hidden bg-gradient-primary">
       <ParticleBackground />
 
       {showCelebration && <ConfettiTrigger type="celebration" />}
 
-      <div className="relative z-10 p-8 flex flex-col min-h-screen">
+      <div className="absolute top-4 left-4 z-20">
+        <EndRoomButton size="sm" />
+      </div>
+
+      <div className="relative z-10 h-full px-4 py-3 md:px-6 md:py-4 flex flex-col overflow-hidden">
         {/* Header */}
-        <div className="flex items-center justify-center mb-8">
-          <Logo size="lg" />
+        <div className="flex items-center justify-center mb-3">
+          <Logo size="md" />
         </div>
 
         {/* Winner Announcement */}
@@ -158,24 +194,24 @@ export const TVResults: React.FC = () => {
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
             transition={{ type: 'spring', stiffness: 200, damping: 15, delay: 0.3 }}
-            className="text-center mb-12"
+            className="text-center mb-4"
           >
             <motion.div
               initial={{ scale: 0, rotate: -180 }}
               animate={{ scale: 1, rotate: 0 }}
               transition={{ type: 'spring', delay: 0.6 }}
-              className="text-8xl mb-6"
+              className="text-5xl mb-2"
             >
               🏆
             </motion.div>
-            <h1 className="text-5xl md:text-7xl font-extrabold mb-4">الفائز!</h1>
-            <div className="flex items-center justify-center gap-6 mb-4">
+            <h1 className="text-4xl md:text-5xl font-extrabold mb-2">الفائز!</h1>
+            <div className="flex items-center justify-center gap-4 mb-2">
               <PlayerAvatar
                 name={winner.player.user_name}
                 color={winner.player.avatar_color}
-                size="lg"
+                size="md"
               />
-              <p className="text-4xl md:text-5xl font-bold bg-gradient-gold bg-clip-text text-transparent">
+              <p className="text-3xl md:text-4xl font-bold bg-gradient-gold bg-clip-text text-transparent">
                 {winner.player.user_name}
               </p>
             </div>
@@ -183,46 +219,53 @@ export const TVResults: React.FC = () => {
               initial={{ scale: 0 }}
               animate={{ scale: 1 }}
               transition={{ delay: 1 }}
-              className="glass rounded-3xl px-10 py-4 inline-block"
+              className="glass rounded-2xl px-6 py-2 inline-block"
             >
-              <ScoreCounter value={winner.player.score} size="lg" suffix=" نقطة" />
+              <ScoreCounter value={winner.player.score} size="md" suffix=" نقطة" />
             </motion.div>
           </motion.div>
         )}
 
         {/* Leaderboard */}
-        <div className="flex-1 flex items-start justify-center">
-          <div className="w-full max-w-4xl">
+        <div className="flex-1 min-h-0 flex items-start justify-center overflow-hidden">
+          <div className={`w-full ${layout.columns >= 3 ? 'max-w-6xl' : 'max-w-4xl'}`}>
             <motion.h2
               initial={{ opacity: 0, y: 20 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.5 }}
-              className="text-3xl font-bold text-center mb-8"
+              className="text-2xl font-bold text-center mb-3"
             >
               لوحة المتصدرين النهائية
             </motion.h2>
 
-            <AnimatedCardContainer className="space-y-4">
-              {leaderboard.map(({ player, rank }, index) => (
+            <AnimatedCardContainer
+              className={`grid ${layout.columns >= 3 ? 'grid-cols-3' : 'grid-cols-2'} ${layout.compact ? 'gap-1.5' : 'gap-2'}`}
+            >
+              {visibleLeaderboard.map(({ player, rank }, index) => (
                 <AnimatedCard
                   key={player.id}
                   index={index}
-                  className={`flex items-center gap-6 p-6 rounded-3xl ${getRankGradient(rank)}`}
+                  className={`flex items-center ${layout.compact ? 'gap-2 p-2 rounded-lg' : 'gap-3 p-2.5 rounded-xl'} ${getRankGradient(rank)}`}
                 >
-                  <RankDisplay rank={rank} size="lg" />
+                  <RankDisplay rank={rank} size="sm" />
                   <PlayerAvatar
                     name={player.user_name}
                     color={player.avatar_color}
-                    size="lg"
+                    size="sm"
                   />
-                  <p className="flex-1 font-bold text-2xl">{player.user_name}</p>
+                  <p className={`flex-1 font-bold truncate ${layout.compact ? 'text-base' : 'text-lg'}`}>{player.user_name}</p>
                   <div className="text-left">
-                    <ScoreCounter value={player.score} size="lg" />
-                    <p className="text-sm text-white/60">نقطة</p>
+                    <ScoreCounter value={player.score} size="sm" />
+                    <p className="text-xs text-white/60">نقطة</p>
                   </div>
                 </AnimatedCard>
               ))}
             </AnimatedCardContainer>
+            {leaderboard.length > visibleLeaderboard.length && (
+              <p className="text-center text-sm text-white/60 mt-2">
+                يتم عرض أعلى {visibleLeaderboard.length} لاعبين على شاشة التلفاز
+              </p>
+            )}
           </div>
         </div>
 
@@ -231,33 +274,23 @@ export const TVResults: React.FC = () => {
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: 1.5 }}
-          className="mt-8 flex justify-center"
+          className="mt-3 flex justify-center"
         >
-          <div className="glass rounded-3xl p-8 flex items-center gap-8">
+          <div className="glass rounded-2xl p-4 flex items-center gap-4">
             <div className="text-center">
-              <p className="text-xl mb-4">العب مرة أخرى!</p>
-              <p className="text-white/60">امسح الكود للانضمام للعبة جديدة</p>
+              <p className="text-lg mb-1">العب مرة أخرى!</p>
+              <p className="text-sm text-white/60">امسح الكود للانضمام للعبة جديدة</p>
             </div>
-            <div className="w-32 h-32 bg-white rounded-2xl p-2">
+            <div className="w-20 h-20 bg-white rounded-xl p-1.5">
               <QRCodeSVG
                 value={joinUrl}
-                size={112}
+                size={68}
                 level="M"
                 className="w-full h-full"
               />
             </div>
           </div>
         </motion.div>
-
-        {/* Thank you message */}
-        <motion.p
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 2 }}
-          className="text-center text-xl text-white/60 mt-8"
-        >
-          شكراً لكم على اللعب! 🎉
-        </motion.p>
       </div>
     </div>
   );
