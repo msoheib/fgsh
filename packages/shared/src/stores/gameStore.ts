@@ -279,7 +279,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             });
           });
         },
-        onRoundStatusChanged: async (roundId: string, status: string) => {
+        onRoundStatusChanged: async (roundId: string, status: string, roundData?: GameRound) => {
           console.log('📢 Round status changed:', { roundId, status });
           const { useRoundStore } = await import('./roundStore');
           const currentState = useRoundStore.getState();
@@ -294,21 +294,25 @@ export const useGameStore = create<GameState>((set, get) => ({
               try {
                 const answers = await RoundService.getRoundAnswers(roundId);
 
-                // Fetch updated round data to get new timer_starts_at
-                const { getSupabase } = await import('../services/supabase');
-                const supabase = getSupabase();
-                const { data: updatedRound } = await supabase
-                  .from('game_rounds')
-                  .select('*')
-                  .eq('id', roundId)
-                  .single();
+                // Use round data from realtime payload if available, fall back to re-fetch
+                let updatedRound = roundData?.timer_starts_at ? roundData : null;
+                if (!updatedRound) {
+                  const { getSupabase } = await import('../services/supabase');
+                  const supabase = getSupabase();
+                  const { data } = await supabase
+                    .from('game_rounds')
+                    .select('*')
+                    .eq('id', roundId)
+                    .single();
+                  updatedRound = data;
+                }
 
                 // Calculate time remaining based on updated server timestamp
                 const startTime = updatedRound?.timer_starts_at
                   ? new Date(updatedRound.timer_starts_at).getTime()
                   : Date.now();
                 const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                const votingTimeRemaining = Math.max(0, (updatedRound?.timer_duration || 20) - elapsed);
+                const votingTimeRemaining = Math.max(0, (updatedRound?.timer_duration || GAME_CONFIG.VOTING_TIMER) - elapsed);
 
                 console.log('📋 Fetched answers:', answers.length, 'Time remaining:', votingTimeRemaining);
                 useRoundStore.setState({
@@ -323,7 +327,11 @@ export const useGameStore = create<GameState>((set, get) => ({
                 });
               } catch (error) {
                 console.error('❌ Failed to fetch answers:', error);
-                useRoundStore.setState({ roundStatus: status as any });
+                useRoundStore.setState({
+                  roundStatus: status as any,
+                  timeRemaining: status === 'voting' ? GAME_CONFIG.VOTING_TIMER : 0,
+                  timerActive: status === 'voting',
+                });
               }
             } else {
               useRoundStore.setState({ roundStatus: status as any });
@@ -550,7 +558,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             applyRoundUpdate();
           });
         },
-        onRoundStatusChanged: async (roundId: string, status: string) => {
+        onRoundStatusChanged: async (roundId: string, status: string, _roundData?: GameRound) => {
           const { useRoundStore } = await import('./roundStore');
           const currentState = useRoundStore.getState();
           if (currentState.currentRound?.id !== roundId) return;
@@ -803,7 +811,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             });
           });
         },
-        onRoundStatusChanged: async (roundId: string, status: string) => {
+        onRoundStatusChanged: async (roundId: string, status: string, roundData?: GameRound) => {
           console.log('📢 Round status changed:', { roundId, status });
           const { useRoundStore } = await import('./roundStore');
           const currentState = useRoundStore.getState();
@@ -818,21 +826,25 @@ export const useGameStore = create<GameState>((set, get) => ({
               try {
                 const answers = await RoundService.getRoundAnswers(roundId);
 
-                // Fetch updated round data to get new timer_starts_at
-                const { getSupabase } = await import('../services/supabase');
-                const supabase = getSupabase();
-                const { data: updatedRound } = await supabase
-                  .from('game_rounds')
-                  .select('*')
-                  .eq('id', roundId)
-                  .single();
+                // Use round data from realtime payload if available, fall back to re-fetch
+                let updatedRound = roundData?.timer_starts_at ? roundData : null;
+                if (!updatedRound) {
+                  const { getSupabase } = await import('../services/supabase');
+                  const supabase = getSupabase();
+                  const { data } = await supabase
+                    .from('game_rounds')
+                    .select('*')
+                    .eq('id', roundId)
+                    .single();
+                  updatedRound = data;
+                }
 
                 // Calculate time remaining based on updated server timestamp
                 const startTime = updatedRound?.timer_starts_at
                   ? new Date(updatedRound.timer_starts_at).getTime()
                   : Date.now();
                 const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                const votingTimeRemaining = Math.max(0, (updatedRound?.timer_duration || 20) - elapsed);
+                const votingTimeRemaining = Math.max(0, (updatedRound?.timer_duration || GAME_CONFIG.VOTING_TIMER) - elapsed);
 
                 console.log('📋 Fetched answers:', answers.length, 'Time remaining:', votingTimeRemaining);
                 useRoundStore.setState({
@@ -847,7 +859,11 @@ export const useGameStore = create<GameState>((set, get) => ({
                 });
               } catch (error) {
                 console.error('❌ Failed to fetch answers:', error);
-                useRoundStore.setState({ roundStatus: status as any });
+                useRoundStore.setState({
+                  roundStatus: status as any,
+                  timeRemaining: status === 'voting' ? GAME_CONFIG.VOTING_TIMER : 0,
+                  timerActive: status === 'voting',
+                });
               }
             } else {
               useRoundStore.setState({ roundStatus: status as any });
@@ -1198,7 +1214,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               applyRoundUpdate();
             });
           },
-          onRoundStatusChanged: async (roundId: string, status: string) => {
+          onRoundStatusChanged: async (roundId: string, status: string, roundData?: GameRound) => {
             const { useRoundStore } = await import('./roundStore');
             const currentState = useRoundStore.getState();
 
@@ -1217,19 +1233,25 @@ export const useGameStore = create<GameState>((set, get) => ({
               try {
                 const { RoundService } = await import('../services/RoundService');
                 const answers = await RoundService.getRoundAnswers(roundId);
-                const { getSupabase } = await import('../services/supabase');
-                const supabase = getSupabase();
-                const { data: updatedRound } = await supabase
-                  .from('game_rounds')
-                  .select('*')
-                  .eq('id', roundId)
-                  .single();
+
+                // Use round data from realtime payload if available, fall back to re-fetch
+                let updatedRound = roundData?.timer_starts_at ? roundData : null;
+                if (!updatedRound) {
+                  const { getSupabase } = await import('../services/supabase');
+                  const supabase = getSupabase();
+                  const { data } = await supabase
+                    .from('game_rounds')
+                    .select('*')
+                    .eq('id', roundId)
+                    .single();
+                  updatedRound = data;
+                }
 
                 const startTime = updatedRound?.timer_starts_at
                   ? new Date(updatedRound.timer_starts_at).getTime()
                   : Date.now();
                 const elapsed = Math.floor((Date.now() - startTime) / 1000);
-                const remaining = Math.max(0, (updatedRound?.timer_duration || currentState.currentRound?.timer_duration || 20) - elapsed);
+                const remaining = Math.max(0, (updatedRound?.timer_duration || currentState.currentRound?.timer_duration || GAME_CONFIG.VOTING_TIMER) - elapsed);
 
                 useRoundStore.setState({
                   currentRound: updatedRound || currentState.currentRound,
@@ -1240,7 +1262,11 @@ export const useGameStore = create<GameState>((set, get) => ({
                 });
               } catch (error) {
                 console.error('[rehydrate] Failed to refresh display round status:', error);
-                useRoundStore.setState({ roundStatus: status as any });
+                useRoundStore.setState({
+                  roundStatus: status as any,
+                  timeRemaining: status === 'voting' ? GAME_CONFIG.VOTING_TIMER : 0,
+                  timerActive: status === 'voting',
+                });
               }
             } else {
               useRoundStore.setState({ roundStatus: status as any });
@@ -1369,13 +1395,57 @@ export const useGameStore = create<GameState>((set, get) => ({
             });
           });
         },
-        onRoundStatusChanged: (roundId, status) => {
-          import('./roundStore').then(({ useRoundStore }) => {
-            const currentRound = useRoundStore.getState().currentRound;
-            if (currentRound?.id === roundId) {
+        onRoundStatusChanged: async (roundId: string, status: string, roundData?: GameRound) => {
+          const { useRoundStore } = await import('./roundStore');
+          const currentState = useRoundStore.getState();
+
+          if (currentState.currentRound?.id === roundId) {
+            if (status === 'voting') {
+              try {
+                const { RoundService } = await import('../services/RoundService');
+                const answers = await RoundService.getRoundAnswers(roundId);
+
+                // Use round data from realtime payload if available, fall back to re-fetch
+                let updatedRound = roundData?.timer_starts_at ? roundData : null;
+                if (!updatedRound) {
+                  const { getSupabase } = await import('../services/supabase');
+                  const supabase = getSupabase();
+                  const { data } = await supabase
+                    .from('game_rounds')
+                    .select('*')
+                    .eq('id', roundId)
+                    .single();
+                  updatedRound = data;
+                }
+
+                const startTime = updatedRound?.timer_starts_at
+                  ? new Date(updatedRound.timer_starts_at).getTime()
+                  : Date.now();
+                const elapsed = Math.floor((Date.now() - startTime) / 1000);
+                const votingTimeRemaining = Math.max(0, (updatedRound?.timer_duration || GAME_CONFIG.VOTING_TIMER) - elapsed);
+
+                useRoundStore.setState({
+                  currentRound: updatedRound || currentState.currentRound,
+                  roundStatus: status as any,
+                  allAnswers: answers,
+                  timeRemaining: votingTimeRemaining,
+                  timerActive: votingTimeRemaining > 0,
+                  playerVotes: new Map(),
+                  myVote: null,
+                  hasSubmittedVote: false,
+                });
+              } catch (error) {
+                console.error('[rehydrate] Failed to fetch voting data:', error);
+                useRoundStore.setState({
+                  roundStatus: status as any,
+                  timeRemaining: GAME_CONFIG.VOTING_TIMER,
+                  timerActive: true,
+                });
+              }
+            } else {
               useRoundStore.setState({ roundStatus: status as any });
             }
-          });
+          }
         },
         onRoundEnded: async (_roundId: string) => {
           const currentGame = get().game;

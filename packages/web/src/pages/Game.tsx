@@ -73,6 +73,8 @@ export const Game: React.FC = () => {
   const isCreatingRoundRef = useRef<boolean>(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const categoryResolverRef = useRef<((value: string | null) => void) | null>(null);
+  const forceAdvanceKeyRef = useRef<string | null>(null);
+  const phaseTimerInitializedRef = useRef<string | null>(null);
   const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? players[0]?.id ?? null;
   const canControlFlow = !!currentPlayer && (controllerPlayerId ? currentPlayer.id === controllerPlayerId : true);
   const revealEstimateSeconds = Math.ceil(
@@ -392,7 +394,17 @@ export const Game: React.FC = () => {
 
   // Handle timer expiration - call server-side force_advance_round
   useEffect(() => {
-    if (!currentRound || timeRemaining !== 0) return;
+    if (!currentRound || !canControlFlow || timeRemaining !== 0) return;
+    if (roundStatus !== 'answering' && roundStatus !== 'voting') return;
+
+    // Guard: only allow force-advance if the timer was actively initialized
+    // for this specific phase. Prevents stale timeRemaining=0 from a previous
+    // phase from triggering force_advance_round on the new phase.
+    if (phaseTimerInitializedRef.current !== roundStatus) return;
+
+    const forceKey = `${currentRound.id}:${roundStatus}`;
+    if (forceAdvanceKeyRef.current === forceKey) return;
+    forceAdvanceKeyRef.current = forceKey;
     
     const handleTimerExpired = async () => {
       console.log('⏰ Timer expired! Calling server-side force_advance_round...');
@@ -406,18 +418,35 @@ export const Game: React.FC = () => {
         
         if (error) {
           console.error('❌ Failed to force advance round:', error);
+          forceAdvanceKeyRef.current = null;
         } else {
           console.log('✅ Server processing timer expiration');
         }
       } catch (err) {
         console.error('❌ Error calling force_advance_round:', err);
+        forceAdvanceKeyRef.current = null;
       }
     };
     
     // Small delay to prevent multiple rapid calls
     const timer = setTimeout(handleTimerExpired, 500);
     return () => clearTimeout(timer);
-  }, [currentRound?.id, timeRemaining]);
+  }, [currentRound?.id, timeRemaining, roundStatus, canControlFlow]);
+
+  // Clear force-advance guard when a new timer starts or round changes.
+  useEffect(() => {
+    if (!currentRound) {
+      forceAdvanceKeyRef.current = null;
+      phaseTimerInitializedRef.current = null;
+      return;
+    }
+    if (timeRemaining > 0) {
+      forceAdvanceKeyRef.current = null;
+      // Mark that the timer has been actively initialized for this phase.
+      // When it later reaches 0, we know it genuinely expired (not stale from previous phase).
+      phaseTimerInitializedRef.current = roundStatus;
+    }
+  }, [currentRound?.id, roundStatus, timeRemaining]);
 
   // Recovery if stuck
   useEffect(() => {

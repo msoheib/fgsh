@@ -31,7 +31,7 @@ export type GameEventCallbacks = {
 
   // Round events
   onRoundStarted?: (round: GameRound, question: Question) => void;
-  onRoundStatusChanged?: (roundId: string, status: string) => void;
+  onRoundStatusChanged?: (roundId: string, status: string, roundData?: GameRound) => void;
   onRoundEnded?: (roundId: string) => void;
 
   // Answer events
@@ -269,7 +269,7 @@ export class RealtimeService {
           status: round.status,
           roundNumber: round.round_number
         });
-        callbacks.onRoundStatusChanged?.(round.id, round.status);
+        callbacks.onRoundStatusChanged?.(round.id, round.status, round);
 
         if (round.status === 'completed') {
           callbacks.onRoundEnded?.(round.id);
