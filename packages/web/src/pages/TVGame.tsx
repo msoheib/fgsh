@@ -23,32 +23,39 @@ const particles = Array.from({ length: 30 }, (_, i) => ({
   duration: Math.random() * 20 + 10,
 }));
 
-const ParticleBackground: React.FC = () => (
-  <div className="fixed inset-0 overflow-hidden pointer-events-none">
-    {particles.map((particle) => (
-      <motion.div
-        key={particle.id}
-        className="absolute rounded-full bg-white/5"
-        style={{
-          left: `${particle.x}%`,
-          top: `${particle.y}%`,
-          width: particle.size,
-          height: particle.size,
-        }}
-        animate={{
-          y: [0, -150, 0],
-          x: [0, Math.random() * 60 - 30, 0],
-          opacity: [0.05, 0.2, 0.05],
-        }}
-        transition={{
-          duration: particle.duration,
-          repeat: Infinity,
-          ease: 'linear',
-        }}
-      />
-    ))}
-  </div>
-);
+const ParticleBackground: React.FC<{ phase?: string }> = ({ phase }) => {
+  const isVoting = phase === 'voting';
+  const isCompleted = phase === 'completed';
+  const colorClass = isCompleted ? 'bg-yellow-400/10' : isVoting ? 'bg-red-400/10' : 'bg-white/5';
+  const speedMult = isVoting ? 0.5 : isCompleted ? 0.8 : 1;
+
+  return (
+    <div className="fixed inset-0 overflow-hidden pointer-events-none transition-colors duration-1000">
+      {particles.map((particle) => (
+        <motion.div
+          key={particle.id}
+          className={`absolute rounded-full ${colorClass}`}
+          style={{
+            left: `${particle.x}%`,
+            top: `${particle.y}%`,
+            width: particle.size,
+            height: particle.size,
+          }}
+          animate={{
+            y: [0, -150, 0],
+            x: [0, Math.random() * 60 - 30, 0],
+            opacity: [0.05, 0.3, 0.05],
+          }}
+          transition={{
+            duration: particle.duration * speedMult,
+            repeat: Infinity,
+            ease: 'linear',
+          }}
+        />
+      ))}
+    </div>
+  );
+};
 
 // Large TV Timer
 const TVTimer: React.FC<{ timeRemaining: number; duration: number }> = ({
@@ -175,13 +182,14 @@ const AnswerRevealCard: React.FC<{ answer: RevealAnswer; isActive: boolean }> = 
   if (!isActive) return null;
 
   return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.8, rotateX: -30 }}
-      animate={{ opacity: 1, scale: 1, rotateX: 0 }}
-      exit={{ opacity: 0, scale: 0.8 }}
-      transition={{ type: 'spring', stiffness: 200, damping: 20 }}
-      className="w-full max-w-4xl mx-auto"
-    >
+    <div style={{ perspective: 1200 }} className="w-full max-w-4xl mx-auto">
+      <motion.div
+        initial={{ opacity: 0, scale: 0.8, rotateX: -60, y: 50 }}
+        animate={{ opacity: 1, scale: 1, rotateX: 0, y: 0 }}
+        exit={{ opacity: 0, scale: 0.8, rotateX: 60 }}
+        transition={{ type: 'spring', stiffness: 150, damping: 15 }}
+        className="w-full"
+      >
       {/* The Answer */}
       <motion.div
         className={`p-10 rounded-3xl text-center mb-8 ${
@@ -263,8 +271,9 @@ const AnswerRevealCard: React.FC<{ answer: RevealAnswer; isActive: boolean }> = 
         >
           لم يصوت أحد لهذه الإجابة
         </motion.div>
-      )}
-    </motion.div>
+        )}
+      </motion.div>
+    </div>
   );
 };
 
@@ -576,7 +585,7 @@ export const TVGame: React.FC = () => {
 
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-primary">
-      <ParticleBackground />
+      <ParticleBackground phase={roundStatus} />
 
       {showConfetti && <ConfettiTrigger type="celebration" />}
 
@@ -641,8 +650,8 @@ export const TVGame: React.FC = () => {
               >
                 {/* Phase instruction */}
                 <motion.p
-                  initial={{ opacity: 0, y: -20 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  animate={{ y: [-5, 5, -5] }}
+                  transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
                   className="text-4xl font-bold text-pink-400 mb-8"
                 >
                   🎭 اكتب كذبة مقنعة!
@@ -681,8 +690,8 @@ export const TVGame: React.FC = () => {
               >
                 {/* Phase instruction */}
                 <motion.p
-                  initial={{ opacity: 0, y: -20 }}
-                  animate={{ opacity: 1, y: 0 }}
+                  animate={{ y: [-5, 5, -5] }}
+                  transition={{ duration: 4, repeat: Infinity, ease: 'easeInOut' }}
                   className="text-4xl font-bold text-cyan-400 mb-8 text-center"
                 >
                   🗳️ صوّت للإجابة الصحيحة!

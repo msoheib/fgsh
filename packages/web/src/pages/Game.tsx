@@ -37,6 +37,13 @@ function normalizeAnswerKey(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
 
+// Minimal haptic feedback helper
+const vibrate = (pattern: number | number[]) => {
+  if (typeof navigator !== 'undefined' && navigator.vibrate) {
+    try { navigator.vibrate(pattern); } catch (e) { /* ignore */ }
+  }
+};
+
 interface CategoryPromptState {
   roundNumber: number;
   options: string[];
@@ -499,17 +506,21 @@ export const Game: React.FC = () => {
         <div className="bg-white/10 backdrop-blur rounded-2xl p-6 text-center max-w-xs w-full">
           <p className="text-lg mb-4">اللعبة لم تبدأ بعد</p>
           <button
-            onClick={() => navigate('/lobby')}
-            className="w-full py-3 mb-2 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 font-bold"
+            onClick={() => {
+              vibrate(50);
+              navigate('/lobby');
+            }}
+            className="w-full py-3 mb-2 rounded-xl bg-gradient-to-r from-purple-500 to-purple-600 font-bold active:scale-95 transition-transform duration-150"
           >
             العودة للردهة
           </button>
           <button
             onClick={() => {
+              vibrate(50);
               useGameStore.getState().leaveGame();
               navigate('/');
             }}
-            className="w-full py-2 rounded-xl bg-white/10 text-sm"
+            className="w-full py-2 rounded-xl bg-white/10 text-sm active:scale-95 transition-transform duration-150"
           >
             مغادرة اللعبة
           </button>
@@ -530,8 +541,11 @@ export const Game: React.FC = () => {
             {categoryPrompt.options.map((category) => (
               <button
                 key={category}
-                onClick={() => setCategorySelection(category)}
-                className={`w-full py-3 px-3 rounded-xl text-right ${
+                onClick={() => {
+                  vibrate(50);
+                  setCategorySelection(category);
+                }}
+                className={`w-full py-3 px-3 rounded-xl text-right active:scale-95 transition-transform duration-150 ${
                   categorySelection === category
                     ? 'bg-cyan-500 text-white'
                     : 'bg-white/10 text-white/90'
@@ -543,8 +557,11 @@ export const Game: React.FC = () => {
           </div>
 
           <button
-            onClick={() => finishCategorySelection(categorySelection || categoryPrompt.options[0] || null)}
-            className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold"
+            onClick={() => {
+              vibrate(50);
+              finishCategorySelection(categorySelection || categoryPrompt.options[0] || null);
+            }}
+            className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold active:scale-95 transition-transform duration-150"
           >
             متابعة
           </button>
@@ -582,22 +599,26 @@ export const Game: React.FC = () => {
 
   const handleSubmitAnswer = async () => {
     if (!answerInput.trim()) return;
+    vibrate([50, 50, 50]); // Success pattern
     try {
       await submitAnswer(currentPlayer.id, answerInput);
       setAnswerInput('');
     } catch (err) {
       console.error('Failed to submit:', err);
+      vibrate([200, 100, 200]); // Error pattern
     }
   };
 
   const handleSubmitVote = async (answerId: string) => {
     if (hasSubmittedVote) return;
+    vibrate(50);
     useRoundStore.setState({ hasSubmittedVote: true });
     try {
       await submitVote(currentPlayer.id, answerId);
       setSelectedAnswer(answerId);
     } catch (err) {
       console.error('Failed to vote:', err);
+      vibrate([200, 100, 200]); // Error pattern
       useRoundStore.setState({ hasSubmittedVote: false });
     }
   };
@@ -633,12 +654,13 @@ export const Game: React.FC = () => {
       {/* Leave button - top left */}
       <button
         onClick={() => {
+          vibrate(50);
           if (window.confirm('هل أنت متأكد أنك تريد مغادرة اللعبة؟')) {
             useGameStore.getState().leaveGame();
             navigate('/');
           }
         }}
-        className="absolute top-4 left-4 px-3 py-2 text-xs bg-red-500/80 hover:bg-red-600 rounded-xl text-white"
+        className="absolute top-4 left-4 px-3 py-2 text-xs bg-red-500/80 hover:bg-red-600 rounded-xl text-white active:scale-95 transition-transform duration-150"
       >
         مغادرة
       </button>
@@ -660,7 +682,7 @@ export const Game: React.FC = () => {
                   value={answerInput}
                   onChange={(e) => setAnswerInput(e.target.value)}
                   placeholder="اكتب كذبتك..."
-                  className="w-full p-3 mb-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:border-pink-500"
+                  className="w-full p-3 mb-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all duration-200"
                   maxLength={GAME_CONFIG.MAX_ANSWER_LENGTH}
                   onKeyPress={(e) => e.key === 'Enter' && handleSubmitAnswer()}
                   autoFocus
@@ -668,7 +690,7 @@ export const Game: React.FC = () => {
                 <button
                   onClick={handleSubmitAnswer}
                   disabled={!answerInput.trim()}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50 active:scale-95 transition-transform duration-150"
                 >
                   إرسال
                 </button>
@@ -695,12 +717,12 @@ export const Game: React.FC = () => {
                     key={answer.id}
                     onClick={() => !hasSubmittedVote && !isOwn && handleSubmitVote(answer.voteTargetId)}
                     disabled={hasSubmittedVote || isOwn}
-                    className={`w-full p-3 rounded-xl text-right ${
+                    className={`w-full p-3 rounded-xl text-right active:scale-95 transition-all duration-150 ${
                       isSelected
-                        ? 'bg-cyan-500 text-white'
+                        ? 'bg-cyan-500 text-white ring-2 ring-cyan-300 shadow-lg shadow-cyan-500/50'
                         : isOwn
                         ? 'bg-white/5 opacity-40'
-                        : 'bg-white/10 active:bg-white/20'
+                        : 'bg-white/10 hover:bg-white/15 active:bg-white/20'
                     }`}
                   >
                     {answer.answer_text}
@@ -728,9 +750,12 @@ export const Game: React.FC = () => {
                   </p>
                 )}
                 <button
-                  onClick={handleNextRound}
+                  onClick={() => {
+                    vibrate(50);
+                    handleNextRound();
+                  }}
                   disabled={reviewCountdown > 0}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50"
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50 active:scale-95 transition-transform duration-150"
                 >
                   {reviewCountdown > 0
                     ? `انتظر ${reviewCountdown} ثانية`
