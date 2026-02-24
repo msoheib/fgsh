@@ -479,7 +479,7 @@ PLANS: {
 - **Moyasar Docs**: https://docs.moyasar.com/
 - **Moyasar Support**: support@moyasar.com
 - **Supabase Docs**: https://supabase.com/docs
-- **Your Support**: support@fakash.com
+- **Your Support**: support@fgsh.com
 
 ---
 

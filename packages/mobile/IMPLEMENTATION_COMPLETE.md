@@ -1,4 +1,4 @@
-# Fakash Mobile App - Implementation Complete ✅
+# fgsh Mobile App - Implementation Complete ✅
 
 ## What's Been Built
 
@@ -10,7 +10,7 @@ High-fidelity React Native clone of the Vite/React web game app for **player exp
 
 ### 1. **Core Infrastructure**
 - ✅ Expo SDK 49 setup with React Native 0.72.6
-- ✅ Monorepo integration with `@fakash/shared` package
+- ✅ Monorepo integration with `@fgsh/shared` package
 - ✅ TypeScript configuration
 - ✅ NativeWind v2 for Tailwind-like styling
 - ✅ React Navigation with stack navigator
@@ -28,7 +28,7 @@ High-fidelity React Native clone of the Vite/React web game app for **player exp
 - ✅ `GradientBackground` - Main container with purple gradient
 - ✅ `GlassCard` - Frosted glass effect cards
 - ✅ `GradientButton` - 4 gradient variants
-- ✅ `Logo` - Fakash logo in 3 sizes
+- ✅ `Logo` - fgsh logo in 3 sizes
 - ✅ `LoadingSpinner` - Animated loading indicator
 - ✅ `CodeInput` - 6-digit game code entry with auto-advance
 - ✅ `GlassTextInput` - Styled text input with glass effect
@@ -45,7 +45,7 @@ High-fidelity React Native clone of the Vite/React web game app for **player exp
 #### **Join Screen** ([JoinScreen.tsx](src/screens/JoinScreen.tsx:1-197))
 - Game code input (6 digits, auto-advance, paste support)
 - Player name entry
-- Deep link support: `fakash://join?code=XXXXXX`
+- Deep link support: `fgsh://join?code=XXXXXX`
 - Validation with haptic feedback
 - Session persistence with AsyncStorage
 
@@ -74,13 +74,13 @@ High-fidelity React Native clone of the Vite/React web game app for **player exp
 ### 5. **Navigation & Deep Linking**
 - ✅ React Navigation stack navigator
 - ✅ Deep linking configuration
-- ✅ URL schemes: `fakash://` and `https://fakash.app`
-- ✅ Join via QR code: `fakash://join?code=XXXXXX`
+- ✅ URL schemes: `fgsh://` and `https://fgsh.app`
+- ✅ Join via QR code: `fgsh://join?code=XXXXXX`
 - ✅ Automatic screen transitions based on game state
 - ✅ Gesture-disabled navigation during game
 
 ### 6. **State Management**
-- ✅ Zustand stores from `@fakash/shared`:
+- ✅ Zustand stores from `@fgsh/shared`:
   - `useGameStore` - Game state, players, connection
   - `useRoundStore` - Rounds, questions, answers, voting
 - ✅ AsyncStorage adapter for session persistence
@@ -135,7 +135,7 @@ npx expo start --android
 
 ## 📦 What's Reused from Shared Package
 
-All business logic is shared with the web app via `@fakash/shared`:
+All business logic is shared with the web app via `@fgsh/shared`:
 
 - ✅ `GameService` - Game creation, joining, management
 - ✅ `useGameStore` - Game state, players, connections
@@ -158,13 +158,13 @@ All business logic is shared with the web app via `@fakash/shared`:
 
 ## 🔗 Deep Linking Examples
 
-- Join game: `fakash://join?code=ABC123`
-- Direct lobby: `fakash://lobby`
-- Direct game: `fakash://game`
-- Results: `fakash://results`
+- Join game: `fgsh://join?code=ABC123`
+- Direct lobby: `fgsh://lobby`
+- Direct game: `fgsh://game`
+- Results: `fgsh://results`
 
 Web URLs also work:
-- `https://fakash.app/join?code=ABC123`
+- `https://fgsh.app/join?code=ABC123`
 
 ---
 

@@ -1,4 +1,4 @@
-# Fakash Game - Complete Requirements & Implementation Guide
+# fgsh Game - Complete Requirements & Implementation Guide
 
 ## 1. Database Schema (Supabase)
 
@@ -86,7 +86,7 @@ CREATE INDEX idx_game_rounds_game_id ON game_rounds(game_id);
 ## 2. Project Structure
 
 ```
-fakash/
+fgsh/
 ├── packages/
 │   ├── web/                    # React.js web app
 │   │   ├── src/
@@ -383,7 +383,7 @@ API_URL=http://localhost:3000
 
 ```json
 {
-  "name": "fakash-game",
+  "name": "fgsh-game",
   "private": true,
   "workspaces": [
     "packages/*"

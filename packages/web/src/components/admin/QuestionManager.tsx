@@ -130,8 +130,10 @@ export const QuestionManager: React.FC = () => {
           parsed = JSON.parse(content);
         } else if (file.name.endsWith('.csv')) {
           parsed = parseCSV(content);
+        } else if (file.name.endsWith('.txt')) {
+          parsed = parseTXT(content);
         } else {
-          toast.error('يرجى رفع ملف CSV أو JSON');
+          toast.error('يرجى رفع ملف CSV أو JSON أو TXT');
           return;
         }
 
@@ -157,14 +159,14 @@ export const QuestionManager: React.FC = () => {
   const parseCSV = (content: string): QuestionInput[] => {
     const lines = content.split('\n').filter((line) => line.trim());
     const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
-    
+
     return lines.slice(1).map((line) => {
       const values = line.split(',').map((v) => v.trim());
       const obj: Record<string, string> = {};
       headers.forEach((header, index) => {
         obj[header] = values[index] || '';
       });
-      
+
       return {
         question_text: obj.question_text || obj.question || '',
         correct_answer: obj.correct_answer || obj.answer || '',
@@ -173,6 +175,155 @@ export const QuestionManager: React.FC = () => {
         language: (obj.language as 'ar' | 'en') || 'ar',
       };
     });
+  };
+
+  const parseTXT = (content: string): QuestionInput[] => {
+    const questions: QuestionInput[] = [];
+    const lines = content.split('\n');
+    let currentCategory = '';
+    let currentQuestion = '';
+    let i = 0;
+
+    // Category header detection patterns (Arabic ordinals)
+    const categoryPatterns = [
+      /^(?:الاول|الأول)\s*[:\s]\s*(.+)/,
+      /^(?:الثاني|الثانيه?)\s*[:\s]?\s*(.+)/,
+      /^(?:الثالث|الثالثه?)\s*[:\s]?\s*(.+)/,
+      /^(?:الرابع)\s*[:\s]?\s*(.+)/,
+      /^(?:الخامس)\s*[:\s]?\s*(.+)/,
+      /^(?:السادس)\s*[:\s]?\s*(.+)/,
+      /^(?:السابع)\s*[:\s]?\s*(.+)/,
+      /^(?:الثامن)\s*[:\s]?\s*(.+)/,
+      /^(?:التاسع)\s*[:\s]?\s*(.+)/,
+      /^(?:العاشر)\s*[:\s]?\s*(.+)/,
+      /^(?:احدى عشر|أحد عشر|الحادي عشر)\s*[:\s]?\s*(.+)/,
+      /^(?:اثنى عشر|اثني عشر|الثاني عشر)\s*[:\s]?\s*(.+)/,
+      /^(?:ثلاثة? عشر|الثالث عشر)\s*[:\s]?\s*(.+)/,
+    ];
+
+    // Skip pattern for "(شيييل)" and variants
+    const skipPattern = /شي+ل/;
+
+    while (i < lines.length) {
+      const line = lines[i].trim();
+
+      // Skip empty lines and separators
+      if (!line || /^[—_⸻\-]{3,}$/.test(line) || line === 'اسئله') {
+        i++;
+        continue;
+      }
+
+      // Check for category header
+      let isCategory = false;
+      for (const pattern of categoryPatterns) {
+        const match = line.match(pattern);
+        if (match) {
+          currentCategory = match[1].replace(/[:\s]+$/, '').trim();
+          isCategory = true;
+          break;
+        }
+      }
+      if (isCategory) { i++; continue; }
+
+      // Check for numbered question start (e.g. "1.", "٤.", "\t1.\t")
+      const questionMatch = line.match(/^[\t\s]*(?:\d+|[٠-٩]+)\s*[.)]\s*(.+)/);
+      if (questionMatch) {
+        currentQuestion = questionMatch[1].trim();
+        i++;
+
+        // Look ahead for answer in various formats
+        let answer = '';
+        let foundAnswer = false;
+
+        while (i < lines.length) {
+          const nextLine = lines[i].trim();
+
+          // Format A: "الجواب: answer" or "🟠 الجواب الصحيح: answer"
+          const jawabMatch = nextLine.match(/^(?:🟠\s*)?(?:الجواب|الجواب الصحيح)\s*:\s*(.+)/);
+          if (jawabMatch) {
+            answer = jawabMatch[1].trim();
+            foundAnswer = true;
+            i++;
+            break;
+          }
+
+          // Format B: Multiple choice - line with ✅
+          if (nextLine.includes('✅')) {
+            const choiceMatch = nextLine.match(/[أ-ي]\)\s*(.+?)✅/);
+            if (choiceMatch) {
+              answer = choiceMatch[1].trim();
+            } else {
+              answer = nextLine.replace(/[•\t\s]*[أ-ي]\)\s*/, '').replace('✅', '').trim();
+            }
+            foundAnswer = true;
+            // Continue scanning to skip remaining choices
+            i++;
+            while (i < lines.length && lines[i].trim().match(/^[•\t\s]*[أ-ي]\)/)) {
+              i++;
+            }
+            break;
+          }
+
+          // Still a multiple choice option (no ✅) — skip
+          if (nextLine.match(/^[•\t\s]*[أ-ي]\)/)) {
+            i++;
+            continue;
+          }
+
+          // Misleading options line — skip
+          if (nextLine.startsWith('(خيارات مضلّلة') || nextLine.startsWith('(خيارات')) {
+            i++;
+            continue;
+          }
+
+          // Empty line — keep looking (answers often follow blank line)
+          if (!nextLine) {
+            i++;
+            continue;
+          }
+
+          // Next numbered question or category — stop looking
+          if (nextLine.match(/^[\t\s]*(?:\d+|[٠-٩]+)\s*[.)]\s*/) ||
+              categoryPatterns.some(p => p.test(nextLine)) ||
+              /^[—_⸻\-]{3,}$/.test(nextLine)) {
+            break;
+          }
+
+          // Could be a continuation of the question text
+          if (!nextLine.match(/^(?:🟠|الجواب)/)) {
+            currentQuestion += ' ' + nextLine;
+          }
+
+          i++;
+        }
+
+        if (foundAnswer && answer) {
+          // Check skip marker
+          if (skipPattern.test(answer)) {
+            continue;
+          }
+          // Clean parenthetical notes from answer
+          answer = answer.replace(/\s*\(.*?\)\s*$/, '').trim();
+          // Clean trailing punctuation artifacts
+          answer = answer.replace(/[!.]+$/, '').trim();
+
+          if (currentQuestion && answer) {
+            questions.push({
+              question_text: currentQuestion,
+              correct_answer: answer,
+              category: currentCategory || undefined,
+              difficulty: 'medium',
+              language: 'ar',
+            });
+          }
+        }
+        continue;
+      }
+
+      i++;
+    }
+
+    return questions;
   };
 
   const handleBulkImport = async () => {
@@ -214,7 +365,7 @@ export const QuestionManager: React.FC = () => {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".json,.csv"
+            accept=".json,.csv,.txt"
             onChange={handleFileUpload}
             className="hidden"
           />

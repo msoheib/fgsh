@@ -7,7 +7,7 @@ interface ConfettiOptions {
   colors?: string[];
 }
 
-// Default Fakash theme colors
+// Default fgsh theme colors
 const defaultColors = ['#7c3aed', '#06b6d4', '#ec4899', '#fbbf24', '#22d3ee'];
 
 // Burst confetti from center

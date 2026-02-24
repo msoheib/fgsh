@@ -1,4 +1,4 @@
-# Fakash Development Setup Guide
+# fgsh Development Setup Guide
 
 ## Quick Start Guide for Testing
 
@@ -35,7 +35,7 @@ npm install --legacy-peer-deps
 1. Go to [supabase.com](https://supabase.com)
 2. Click **"New Project"**
 3. Fill in:
-   - **Name**: `fakash-game` (or any name)
+   - **Name**: `fgsh-game` (or any name)
    - **Database Password**: Save this password!
    - **Region**: Choose closest to you
 4. Click **"Create new project"** and wait ~2 minutes

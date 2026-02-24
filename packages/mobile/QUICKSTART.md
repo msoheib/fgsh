@@ -1,4 +1,4 @@
-# Quick Start - Fakash Mobile
+# Quick Start - fgsh Mobile
 
 ## ⚠️ Important: Use Native Commands (Not --web)
 
@@ -84,7 +84,7 @@ Starting project at C:\Users\Hopef\Desktop\Fgsh\packages\mobile
 
 ✅ The app will show a purple screen with:
 - "فقش 🎮" logo
-- "Fakash Mobile App"
+- "fgsh Mobile App"
 - "Coming Soon!"
 
 This confirms everything is working!

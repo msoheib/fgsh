@@ -1,4 +1,4 @@
--- Seed data for Fakash Game
+-- Seed data for fgsh Game
 -- Arabic trivia questions for initial testing and demo
 
 -- Clear existing data (for development)

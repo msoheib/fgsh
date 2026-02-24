@@ -8,7 +8,7 @@ Players can join the lobby, but the host doesn't see real-time updates of new pl
 ### Step 1: Go to Supabase Dashboard
 
 1. Open [supabase.com](https://supabase.com)
-2. Select your Fakash project
+2. Select your fgsh project
 3. Click **"Database"** in the left sidebar
 4. Click **"Replication"** tab
 

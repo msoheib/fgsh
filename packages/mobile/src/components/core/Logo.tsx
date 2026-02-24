@@ -30,7 +30,7 @@ export function Logo({ size = 'md', style }: LogoProps) {
       source={logo}
       style={[{ width, height, resizeMode: 'contain' }, style]}
       accessible
-      accessibilityLabel="Fakash logo"
+      accessibilityLabel="fgsh logo"
     />
   );
 }

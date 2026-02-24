@@ -18,7 +18,7 @@ That's it! This will:
 
 A purple screen with:
 - **"فقش 🎮"** - Arabic logo
-- **"Fakash Mobile App"**
+- **"fgsh Mobile App"**
 - **"Coming Soon!"**
 
 This confirms the app is working!

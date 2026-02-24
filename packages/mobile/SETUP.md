@@ -1,4 +1,4 @@
-# Fakash Mobile - Setup Guide
+# fgsh Mobile - Setup Guide
 
 ## Quick Start
 

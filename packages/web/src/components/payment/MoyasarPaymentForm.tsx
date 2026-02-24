@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MOYASAR_CONFIG, type PaymentPlanId } from '@fakash/shared';
+import { MOYASAR_CONFIG, type PaymentPlanId } from '@fgsh/shared';
 import { LoadingSpinner } from '../LoadingSpinner';
 
 // Moyasar types
@@ -82,7 +82,7 @@ export const MoyasarPaymentForm: React.FC<MoyasarPaymentFormProps> = ({
         element: '.moyasar-payment-form',
         amount: plan.priceHalalas,
         currency: MOYASAR_CONFIG.CURRENCY,
-        description: `${plan.nameAr} - Fakash Game`,
+        description: `${plan.nameAr} - fgsh Game`,
         publishable_api_key: publishableKey,
         callback_url: MOYASAR_CONFIG.getCallbackUrl(planId),
         methods: ['creditcard'] as string[],

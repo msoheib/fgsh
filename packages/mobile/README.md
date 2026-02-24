@@ -1,6 +1,6 @@
-# Fakash Mobile App
+# fgsh Mobile App
 
-React Native mobile application for Fakash game (player experience).
+React Native mobile application for fgsh game (player experience).
 
 ## Setup
 
@@ -62,12 +62,12 @@ packages/mobile/
 - **Expo SDK 49** - React Native framework
 - **React Navigation** - Screen navigation and deep linking
 - **NativeWind** - Tailwind CSS for React Native
-- **Zustand** - State management (from @fakash/shared)
+- **Zustand** - State management (from @fgsh/shared)
 - **Supabase** - Backend and real-time subscriptions
 - **AsyncStorage** - Local data persistence
 
 ## Development
 
-This app shares business logic with the web app via the `@fakash/shared` package. All game logic, services, and stores are reused.
+This app shares business logic with the web app via the `@fgsh/shared` package. All game logic, services, and stores are reused.
 
 Only the UI layer is reimplemented for React Native.

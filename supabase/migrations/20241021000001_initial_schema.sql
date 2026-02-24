@@ -1,4 +1,4 @@
--- Fakash Game Database Schema
+-- fgsh Game Database Schema
 -- Migration: Initial schema setup
 
 -- Enable UUID extension

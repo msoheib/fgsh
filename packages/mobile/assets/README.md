@@ -1,6 +1,6 @@
 # Assets Directory
 
-This directory contains static assets for the Fakash mobile app.
+This directory contains static assets for the fgsh mobile app.
 
 ## Required Assets
 

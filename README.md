@@ -31,7 +31,7 @@ A reeeeal-time multiplayer party game inspired by Fibbage, where players answer 
 ## 🏗️ Project Structure
 
 ```
-fakash/
+fgsh/
 ├── packages/
 │   ├── shared/           # Shared TypeScript code
 │   │   ├── src/
@@ -189,7 +189,7 @@ cd packages/mobile
 2. **Navigation**:
    - Stack Navigator setup
    - Screen transitions
-   - Deep linking (fakash://join/XXXXXX)
+   - Deep linking (fgsh://join/XXXXXX)
 
 3. **Mobile-Specific**:
    - Haptic feedback on button press

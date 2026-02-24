@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "Fakash",
-    "slug": "fakash",
+    "name": "fgsh",
+    "slug": "fgsh",
     "version": "1.0.0",
     "platforms": [
       "ios",
@@ -21,7 +21,7 @@
     ],
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.fakash.game",
+      "bundleIdentifier": "com.fgsh.game",
       "infoPlist": {
         "UIViewControllerBasedStatusBarAppearance": false,
         "ITSAppUsesNonExemptEncryption": false
@@ -32,12 +32,12 @@
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#1a0933"
       },
-      "package": "com.fakash.game"
+      "package": "com.fgsh.game"
     },
     "web": {
       "favicon": "./assets/favicon.png"
     },
-    "scheme": "fakash",
+    "scheme": "fgsh",
     "plugins": [
       "expo-font"
     ],

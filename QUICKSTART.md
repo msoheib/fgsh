@@ -1,4 +1,4 @@
-# 🚀 Fakash Quick Start Guide
+# 🚀 fgsh Quick Start Guide
 
 The web UI is now complete! Follow these steps to run the app.
 
@@ -127,7 +127,7 @@ The app will open at: `http://localhost:5173`
 
 ## 🔧 Troubleshooting
 
-### "Cannot find module '@fakash/shared'"
+### "Cannot find module '@fgsh/shared'"
 **Solution**: Run `npm install` in the ROOT directory (not in packages/)
 
 ### Supabase connection error

@@ -1,6 +1,6 @@
 # Fonts Setup
 
-This directory should contain the required font files for the Fakash mobile app.
+This directory should contain the required font files for the fgsh mobile app.
 
 ## Required Fonts
 

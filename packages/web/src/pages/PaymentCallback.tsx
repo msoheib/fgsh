@@ -174,7 +174,7 @@ export const PaymentCallback: React.FC = () => {
         <div className="mt-8 pt-6 border-t border-white/10">
           <p className="text-sm text-white/60">
             هل تحتاج إلى مساعدة؟{' '}
-            <a href="mailto:support@fakash.com" className="text-secondary-main hover:underline">
+            <a href="mailto:support@fgsh.com" className="text-secondary-main hover:underline">
               اتصل بالدعم الفني
             </a>
           </p>

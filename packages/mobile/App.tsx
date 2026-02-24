@@ -11,7 +11,7 @@ import Constants from 'expo-constants';
 
 // Screens
 import { JoinScreen, LobbyScreen, GameScreen, ResultsScreen } from './src/screens';
-import { initializeSupabase } from '@fakash/shared';
+import { initializeSupabase } from '@fgsh/shared';
 
 // Ensure RTL layout for Arabic
 if (!I18nManager.isRTL) {
@@ -23,7 +23,7 @@ const Stack = createStackNavigator();
 
 // Deep linking configuration
 const linking: LinkingOptions<any> = {
-  prefixes: ['fakash://', 'https://fakash.app'],
+  prefixes: ['fgsh://', 'https://fgsh.app'],
   config: {
     screens: {
       Join: {
