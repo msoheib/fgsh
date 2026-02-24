@@ -17,35 +17,51 @@ export const PaymentCallback: React.FC = () => {
 
   useEffect(() => {
     const paymentId = searchParams.get('id');
+    const callbackPlan = searchParams.get('plan');
 
-    if (!paymentId) {
-      setStatus('error');
-      setMessage('معرف الدفع مفقود');
-      return;
-    }
+    const run = async () => {
+      if (!paymentId) {
+        setStatus('error');
+        setMessage('معرف الدفع مفقود');
+        return;
+      }
 
-    // 1. Check if we already verified this payment in this session
-    // This prevents the loop if the component remounts due to auth state changes
-    const verificationKey = `verified_${paymentId}`;
-    if (sessionStorage.getItem(verificationKey)) {
-      console.log('[PaymentCallback] Payment already verified in this session, skipping...');
-      setStatus('success');
-      setMessage('تم الدفع بنجاح! تم تفعيل حسابك.');
-      return;
-    }
+      // 1. Check if we already verified this payment in this session.
+      // Re-verify if entitlement is still inactive to avoid stale-success cache.
+      const verificationKey = `verified_${paymentId}`;
+      if (sessionStorage.getItem(verificationKey)) {
+        try {
+          const entitlement = await PaymentService.checkHostEntitlement();
+          if (entitlement?.can_create_games) {
+            console.log('[PaymentCallback] Payment already verified in this session, skipping...');
+            setStatus('success');
+            setMessage('تم الدفع بنجاح! تم تفعيل حسابك.');
+            return;
+          }
 
-    // 2. Prevent double-fire in React Strict Mode (same component instance)
-    if (verificationAttempted.current) {
-      return;
-    }
-    verificationAttempted.current = true;
+          console.warn('[PaymentCallback] Cached verification found but entitlement is inactive. Re-verifying callback.');
+          sessionStorage.removeItem(verificationKey);
+        } catch (entitlementError) {
+          console.warn('[PaymentCallback] Failed to verify cached entitlement; retrying payment verification.', entitlementError);
+          sessionStorage.removeItem(verificationKey);
+        }
+      }
 
-    handlePaymentVerification(paymentId);
+      // 2. Prevent double-fire in React Strict Mode (same component instance)
+      if (verificationAttempted.current) {
+        return;
+      }
+      verificationAttempted.current = true;
+
+      await handlePaymentVerification(paymentId, callbackPlan);
+    };
+
+    void run();
   }, [searchParams]);
 
-  const handlePaymentVerification = async (paymentId: string) => {
+  const handlePaymentVerification = async (paymentId: string, callbackPlan?: string | null) => {
     try {
-      const result = await PaymentService.handlePaymentCallback(paymentId);
+      const result = await PaymentService.handlePaymentCallback(paymentId, callbackPlan);
 
       if (result.success) {
         // 3. Mark as verified in sessionStorage so we don't loop on remount
@@ -183,3 +199,5 @@ export const PaymentCallback: React.FC = () => {
     </div>
   );
 };
+
+

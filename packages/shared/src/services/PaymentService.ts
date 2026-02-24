@@ -31,6 +31,65 @@ export interface PaymentRecord {
 
 export class PaymentService {
   /**
+   * Normalize callback plan key/id into PaymentPlanId.
+   * Accepts values like BASIC/basic/premium.
+   */
+  private static normalizePlanId(plan?: string | null): PaymentPlanId | null {
+    if (!plan) return null;
+
+    const normalized = plan.trim().toUpperCase();
+    if (normalized in MOYASAR_CONFIG.PLANS) {
+      return normalized as PaymentPlanId;
+    }
+
+    const byInternalId = (Object.entries(MOYASAR_CONFIG.PLANS) as Array<[PaymentPlanId, typeof MOYASAR_CONFIG.PLANS[PaymentPlanId]]>)
+      .find(([, cfg]) => cfg.id.toUpperCase() === normalized);
+
+    return byInternalId ? byInternalId[0] : null;
+  }
+
+  /**
+   * Resolve plan from callback query and/or payment amount.
+   */
+  private static resolvePlanIdForPayment(payment: MoyasarPayment, callbackPlan?: string | null): PaymentPlanId | null {
+    const fromCallback = this.normalizePlanId(callbackPlan);
+    if (fromCallback) {
+      return fromCallback;
+    }
+
+    const byAmount = (Object.entries(MOYASAR_CONFIG.PLANS) as Array<[PaymentPlanId, typeof MOYASAR_CONFIG.PLANS[PaymentPlanId]]>)
+      .find(([, cfg]) => cfg.priceHalalas === payment.amount);
+
+    return byAmount ? byAmount[0] : null;
+  }
+
+  /**
+   * Ensure a payment row exists before status update.
+   * Safe to call repeatedly.
+   */
+  private static async ensurePaymentRecordExists(payment: MoyasarPayment, callbackPlan?: string | null): Promise<void> {
+    const planId = this.resolvePlanIdForPayment(payment, callbackPlan);
+
+    if (!planId) {
+      throw new Error('Unable to resolve payment plan from callback');
+    }
+
+    try {
+      await this.createPaymentRecord(payment.id, planId);
+    } catch (error: any) {
+      const code = error?.code;
+      const message = String(error?.message || '');
+
+      // Ignore duplicates if another flow already inserted the row.
+      if (code === '23505' || message.toLowerCase().includes('duplicate key')) {
+        return;
+      }
+
+      throw error;
+    }
+  }
+
+  /**
    * Check if the current user is authenticated and can create games
    */
   static async checkHostEntitlement(): Promise<HostEntitlement | null> {
@@ -203,7 +262,7 @@ export class PaymentService {
    * Handle payment callback (called after user returns from Moyasar)
    * @param paymentId - Moyasar payment ID from URL query param
    */
-  static async handlePaymentCallback(paymentId: string): Promise<{
+  static async handlePaymentCallback(paymentId: string, callbackPlan?: string | null): Promise<{
     success: boolean;
     payment: MoyasarPayment;
     message: string;
@@ -249,7 +308,7 @@ export class PaymentService {
 
       // Update payment status in database (this triggers the host_profiles update)
       console.log('[PaymentCallback] Updating database with status:', payment.status);
-      const updated = await this.updatePaymentStatus(payment.id, payment.status, {
+      let updated = await this.updatePaymentStatus(payment.id, payment.status, {
         payment_method: payment.source?.type,
         card_company: payment.source?.company,
         card_last_four: payment.source?.number?.slice(-4),
@@ -257,6 +316,25 @@ export class PaymentService {
       });
 
       console.log('[PaymentCallback] Database update result:', updated);
+
+      // If callback row was not pre-created, create it now and retry status update.
+      if (!updated) {
+        console.warn('[PaymentCallback] Payment row not found. Creating payment record and retrying update...');
+        await this.ensurePaymentRecordExists(payment, callbackPlan);
+
+        updated = await this.updatePaymentStatus(payment.id, payment.status, {
+          payment_method: payment.source?.type,
+          card_company: payment.source?.company,
+          card_last_four: payment.source?.number?.slice(-4),
+          reference: payment.id,
+        });
+
+        console.log('[PaymentCallback] Database update retry result:', updated);
+      }
+
+      if (!updated) {
+        throw new Error('Failed to persist payment status in database');
+      }
 
       // Check payment status
       if (payment.status === 'paid' || payment.status === 'captured') {

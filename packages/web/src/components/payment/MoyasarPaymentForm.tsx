@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { MOYASAR_CONFIG, type PaymentPlanId } from '@fgsh/shared';
+import { MOYASAR_CONFIG, PaymentService, type PaymentPlanId } from '@fgsh/shared';
 import { LoadingSpinner } from '../LoadingSpinner';
 
 // Moyasar types
@@ -89,6 +89,19 @@ export const MoyasarPaymentForm: React.FC<MoyasarPaymentFormProps> = ({
         supported_networks: ['visa', 'mastercard', 'mada'] as string[],
         on_completed: async (payment) => {
           console.log('Payment completed:', payment);
+
+          // Create payment row early when possible to simplify callback reconciliation.
+          if (payment?.id) {
+            try {
+              await PaymentService.createPaymentRecord(payment.id, planId);
+            } catch (createError: any) {
+              const code = createError?.code;
+              const message = String(createError?.message || '');
+              if (code !== '23505' && !message.toLowerCase().includes('duplicate key')) {
+                console.warn('Failed to create payment record before callback:', createError);
+              }
+            }
+          }
 
           // Notify parent component
           onPaymentInitiated?.(payment.id);
