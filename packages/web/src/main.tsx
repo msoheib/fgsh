@@ -4,6 +4,12 @@ import App from './App';
 import './styles/index.css';
 import { initializeSupabase } from '@fakash/shared';
 
+// Expose Vite env vars to shared runtime utilities.
+(globalThis as { __FGSH_ENV__?: Record<string, string | boolean | undefined> }).__FGSH_ENV__ = {
+  ...((globalThis as { __FGSH_ENV__?: Record<string, string | boolean | undefined> }).__FGSH_ENV__ || {}),
+  ...import.meta.env,
+};
+
 // Initialize Supabase client for web
 const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
