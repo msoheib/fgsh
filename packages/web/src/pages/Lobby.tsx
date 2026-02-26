@@ -117,9 +117,9 @@ export const Lobby: React.FC = () => {
 
         {/* Leave */}
         <button
-          onClick={() => {
-            useGameStore.getState().leaveGame();
-            navigate('/');
+          onClick={async () => {
+            await useGameStore.getState().leaveGame();
+            navigate('/', { replace: true });
           }}
           className="mt-4 w-full py-2 rounded-xl bg-white/10 text-sm"
         >

@@ -515,10 +515,10 @@ export const Game: React.FC = () => {
             العودة للردهة
           </button>
           <button
-            onClick={() => {
+            onClick={async () => {
               vibrate(50);
-              useGameStore.getState().leaveGame();
-              navigate('/');
+              await useGameStore.getState().leaveGame();
+              navigate('/', { replace: true });
             }}
             className="w-full py-2 rounded-xl bg-white/10 text-sm active:scale-95 transition-transform duration-150"
           >
@@ -653,11 +653,11 @@ export const Game: React.FC = () => {
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-primary relative">
       {/* Leave button - top left */}
       <button
-        onClick={() => {
+        onClick={async () => {
           vibrate(50);
           if (window.confirm('هل أنت متأكد أنك تريد مغادرة اللعبة؟')) {
-            useGameStore.getState().leaveGame();
-            navigate('/');
+            await useGameStore.getState().leaveGame();
+            navigate('/', { replace: true });
           }
         }}
         className="absolute top-4 left-4 px-3 py-2 text-xs bg-red-500/80 hover:bg-red-600 rounded-xl text-white active:scale-95 transition-transform duration-150"

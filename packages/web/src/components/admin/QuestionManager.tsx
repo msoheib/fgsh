@@ -1,11 +1,17 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { AdminService, type Question, type QuestionInput, type QuestionFilters } from '@fakash/shared';
+import { AdminService, type Question, type QuestionInput, type QuestionFilters, type QuestionLie } from '@fakash/shared';
 import { GradientButton } from '../GradientButton';
 import { LoadingSpinner } from '../LoadingSpinner';
 import toast from 'react-hot-toast';
 
 interface EditingQuestion extends QuestionInput {
   id?: string;
+}
+
+interface GeneratedQuestion {
+  question_text: string;
+  correct_answer: string;
+  _excluded?: boolean; // Admin marks for removal before import
 }
 
 const DIFFICULTY_LABELS = {
@@ -31,10 +37,35 @@ export const QuestionManager: React.FC = () => {
   const [uploadPreview, setUploadPreview] = useState<QuestionInput[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  // AI Generation state
+  const [showAIGenerateModal, setShowAIGenerateModal] = useState(false);
+  const [aiCategory, setAiCategory] = useState('');
+  const [aiCount, setAiCount] = useState(5);
+  const [aiDifficulty, setAiDifficulty] = useState<'easy' | 'medium' | 'hard'>('medium');
+  const [aiGenerating, setAiGenerating] = useState(false);
+  const [aiPreview, setAiPreview] = useState<GeneratedQuestion[] | null>(null);
+
+  // Lies management state
+  const [showLiesModal, setShowLiesModal] = useState(false);
+  const [liesQuestion, setLiesQuestion] = useState<Question | null>(null);
+  const [questionLies, setQuestionLies] = useState<QuestionLie[]>([]);
+  const [liesLoading, setLiesLoading] = useState(false);
+  const [liesGenerating, setLiesGenerating] = useState(false);
+  const [lieCounts, setLieCounts] = useState<Record<string, number>>({});
+  const [newLieText, setNewLieText] = useState('');
+  const [aiLieCount, setAiLieCount] = useState(3);
+
   useEffect(() => {
     loadQuestions();
     loadCategories();
   }, [filters]);
+
+  // Load lie counts whenever questions change
+  useEffect(() => {
+    if (questions.length > 0) {
+      loadLieCounts();
+    }
+  }, [questions]);
 
   const loadQuestions = async () => {
     setLoading(true);
@@ -54,6 +85,16 @@ export const QuestionManager: React.FC = () => {
       setCategories(data);
     } catch (error) {
       console.error('Failed to load categories:', error);
+    }
+  };
+
+  const loadLieCounts = async () => {
+    try {
+      const ids = questions.map((q) => q.id);
+      const counts = await AdminService.getQuestionLieCounts(ids);
+      setLieCounts(counts);
+    } catch (error) {
+      console.error('Failed to load lie counts:', error);
     }
   };
 
@@ -347,6 +388,124 @@ export const QuestionManager: React.FC = () => {
     }
   };
 
+  // ==================== AI Question Generation ====================
+
+  const handleAIGenerate = async () => {
+    if (!aiCategory.trim()) {
+      toast.error('يرجى كتابة الفئة');
+      return;
+    }
+
+    setAiGenerating(true);
+    try {
+      const { questions: generated } = await AdminService.generateQuestions({
+        category: aiCategory.trim(),
+        count: aiCount,
+        difficulty: aiDifficulty,
+      });
+      setAiPreview(generated.map((q) => ({ ...q, _excluded: false })));
+      toast.success(`تم إنشاء ${generated.length} سؤال`);
+    } catch (error: any) {
+      toast.error(error.message || 'فشل في إنشاء الأسئلة');
+    } finally {
+      setAiGenerating(false);
+    }
+  };
+
+  const handleAIImport = async () => {
+    if (!aiPreview) return;
+
+    const toImport = aiPreview.filter((q) => !q._excluded);
+    if (toImport.length === 0) {
+      toast.error('لا توجد أسئلة للاستيراد');
+      return;
+    }
+
+    try {
+      const result = await AdminService.bulkImportQuestions(
+        toImport.map((q) => ({
+          question_text: q.question_text,
+          correct_answer: q.correct_answer,
+          category: aiCategory.trim(),
+          difficulty: aiDifficulty,
+          language: 'ar' as const,
+        }))
+      );
+      toast.success(`تم استيراد ${result.success} سؤال بنجاح`);
+      setShowAIGenerateModal(false);
+      setAiPreview(null);
+      setAiCategory('');
+      loadQuestions();
+      loadCategories();
+    } catch (error) {
+      toast.error('حدث خطأ أثناء الاستيراد');
+    }
+  };
+
+  // ==================== Lies Management ====================
+
+  const handleOpenLies = async (question: Question) => {
+    setLiesQuestion(question);
+    setShowLiesModal(true);
+    setLiesLoading(true);
+    try {
+      const lies = await AdminService.getQuestionLies(question.id);
+      setQuestionLies(lies);
+    } catch (error) {
+      toast.error('فشل في تحميل الإجابات المضللة');
+    } finally {
+      setLiesLoading(false);
+    }
+  };
+
+  const handleGenerateLies = async () => {
+    if (!liesQuestion) return;
+
+    setLiesGenerating(true);
+    try {
+      const { lies, inserted } = await AdminService.generateLies({
+        question_id: liesQuestion.id,
+        question_text: liesQuestion.question_text,
+        correct_answer: liesQuestion.correct_answer,
+        count: aiLieCount,
+      });
+      toast.success(`تم إنشاء ${lies.length} إجابة مضللة (${inserted} جديدة)`);
+      const updated = await AdminService.getQuestionLies(liesQuestion.id);
+      setQuestionLies(updated);
+      loadLieCounts();
+    } catch (error: any) {
+      toast.error(error.message || 'فشل في إنشاء الإجابات المضللة');
+    } finally {
+      setLiesGenerating(false);
+    }
+  };
+
+  const handleAddManualLie = async () => {
+    if (!liesQuestion || !newLieText.trim()) return;
+
+    try {
+      await AdminService.addQuestionLie(liesQuestion.id, newLieText.trim());
+      toast.success('تمت إضافة الإجابة المضللة');
+      setNewLieText('');
+      const updated = await AdminService.getQuestionLies(liesQuestion.id);
+      setQuestionLies(updated);
+      loadLieCounts();
+    } catch (error) {
+      toast.error('فشل في إضافة الإجابة المضللة');
+    }
+  };
+
+  const handleDeleteLie = async (lieId: string) => {
+    try {
+      await AdminService.deleteQuestionLie(lieId);
+      setQuestionLies((prev) => prev.filter((l) => l.id !== lieId));
+      toast.success('تم حذف الإجابة المضللة');
+      loadLieCounts();
+    } catch (error) {
+      toast.error('حدث خطأ أثناء الحذف');
+    }
+  };
+
   return (
     <div>
       {/* Header */}
@@ -356,11 +515,17 @@ export const QuestionManager: React.FC = () => {
           <GradientButton variant="cyan" onClick={handleAddNew}>
             + إضافة سؤال
           </GradientButton>
-          <GradientButton 
-            variant="purple" 
+          <GradientButton
+            variant="purple"
             onClick={() => fileInputRef.current?.click()}
           >
-            📤 رفع ملف
+            رفع ملف
+          </GradientButton>
+          <GradientButton
+            variant="cyan"
+            onClick={() => { setShowAIGenerateModal(true); setAiPreview(null); }}
+          >
+            إنشاء بالذكاء الاصطناعي
           </GradientButton>
           <input
             ref={fileInputRef}
@@ -376,7 +541,7 @@ export const QuestionManager: React.FC = () => {
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
         <input
           type="text"
-          placeholder="🔍 بحث في الأسئلة..."
+          placeholder="بحث في الأسئلة..."
           value={filters.search || ''}
           onChange={(e) => setFilters({ ...filters, search: e.target.value })}
           className="glass px-4 py-3 rounded-xl text-white placeholder-white/50 outline-none focus:ring-2 focus:ring-purple-500"
@@ -432,14 +597,14 @@ export const QuestionManager: React.FC = () => {
                 <th className="text-right py-3 px-4 font-semibold text-white/70">الإجابة</th>
                 <th className="text-right py-3 px-4 font-semibold text-white/70">الفئة</th>
                 <th className="text-right py-3 px-4 font-semibold text-white/70">المستوى</th>
-                <th className="text-right py-3 px-4 font-semibold text-white/70">اللغة</th>
+                <th className="text-right py-3 px-4 font-semibold text-white/70">الأكاذيب</th>
                 <th className="text-right py-3 px-4 font-semibold text-white/70">الإجراءات</th>
               </tr>
             </thead>
             <tbody>
               {questions.map((question, index) => (
-                <tr 
-                  key={question.id} 
+                <tr
+                  key={question.id}
                   className="border-b border-white/5 hover:bg-white/5 transition-colors"
                 >
                   <td className="py-3 px-4 text-white/60">{index + 1}</td>
@@ -460,9 +625,17 @@ export const QuestionManager: React.FC = () => {
                     </span>
                   </td>
                   <td className="py-3 px-4">
-                    <span className="px-2 py-1 rounded-lg bg-blue-500/20 text-blue-200 text-sm">
-                      {LANGUAGE_LABELS[question.language]}
-                    </span>
+                    <button
+                      type="button"
+                      onClick={() => handleOpenLies(question)}
+                      className={`px-2 py-1 rounded-lg text-sm transition-colors ${
+                        (lieCounts[question.id] || 0) > 0
+                          ? 'bg-cyan-500/20 text-cyan-300 hover:bg-cyan-500/30'
+                          : 'bg-white/5 text-white/40 hover:bg-white/10'
+                      }`}
+                    >
+                      {lieCounts[question.id] || 0} أكاذيب
+                    </button>
                   </td>
                   <td className="py-3 px-4">
                     <div className="flex gap-2">
@@ -496,7 +669,7 @@ export const QuestionManager: React.FC = () => {
             <h3 className="text-xl font-bold mb-6">
               {editingQuestion.id ? 'تعديل سؤال' : 'إضافة سؤال جديد'}
             </h3>
-            
+
             <div className="space-y-4">
               <div>
                 <label className="block text-white/70 mb-2">السؤال *</label>
@@ -580,8 +753,8 @@ export const QuestionManager: React.FC = () => {
               <GradientButton variant="cyan" onClick={handleSave} className="flex-1">
                 حفظ
               </GradientButton>
-              <GradientButton 
-                variant="purple" 
+              <GradientButton
+                variant="purple"
                 onClick={() => { setShowModal(false); setEditingQuestion(null); }}
                 className="flex-1"
               >
@@ -602,15 +775,15 @@ export const QuestionManager: React.FC = () => {
             <h3 className="text-xl font-bold mb-2">هل أنت متأكد؟</h3>
             <p className="text-white/60 mb-6">سيتم حذف هذا السؤال نهائياً ولا يمكن استرجاعه.</p>
             <div className="flex gap-3">
-              <GradientButton 
-                variant="cyan" 
-                onClick={() => handleDelete(showDeleteConfirm)} 
+              <GradientButton
+                variant="cyan"
+                onClick={() => handleDelete(showDeleteConfirm)}
                 className="flex-1"
               >
                 نعم، احذف
               </GradientButton>
-              <GradientButton 
-                variant="purple" 
+              <GradientButton
+                variant="purple"
                 onClick={() => setShowDeleteConfirm(null)}
                 className="flex-1"
               >
@@ -627,7 +800,7 @@ export const QuestionManager: React.FC = () => {
           <div className="glass max-w-2xl w-full rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-4">معاينة الأسئلة للاستيراد</h3>
             <p className="text-white/60 mb-4">تم العثور على {uploadPreview.length} سؤال صالح</p>
-            
+
             <div className="space-y-3 mb-6 max-h-[50vh] overflow-y-auto">
               {uploadPreview.slice(0, 10).map((q, index) => (
                 <div key={index} className="bg-white/5 rounded-xl p-3">
@@ -649,12 +822,254 @@ export const QuestionManager: React.FC = () => {
               <GradientButton variant="cyan" onClick={handleBulkImport} className="flex-1">
                 استيراد الكل ({uploadPreview.length})
               </GradientButton>
-              <GradientButton 
-                variant="purple" 
+              <GradientButton
+                variant="purple"
                 onClick={() => { setShowUploadModal(false); setUploadPreview(null); }}
                 className="flex-1"
               >
                 إلغاء
+              </GradientButton>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* AI Question Generation Modal */}
+      {showAIGenerateModal && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="glass max-w-2xl w-full rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold mb-6">إنشاء أسئلة بالذكاء الاصطناعي</h3>
+
+            {!aiPreview ? (
+              // Configuration form
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-white/70 mb-2">الفئة *</label>
+                  <input
+                    type="text"
+                    value={aiCategory}
+                    onChange={(e) => setAiCategory(e.target.value)}
+                    className="w-full glass px-4 py-3 rounded-xl text-white outline-none focus:ring-2 focus:ring-purple-500"
+                    dir="rtl"
+                    placeholder="مثال: كرة القدم، تاريخ، جغرافيا..."
+                    list="categories"
+                  />
+                </div>
+
+                <div>
+                  <label htmlFor="ai-question-count" className="block text-white/70 mb-2">عدد الأسئلة: {aiCount}</label>
+                  <input
+                    id="ai-question-count"
+                    type="range"
+                    min={1}
+                    max={20}
+                    value={aiCount}
+                    onChange={(e) => setAiCount(Number(e.target.value))}
+                    className="w-full"
+                    aria-label="عدد الأسئلة"
+                  />
+                  <div className="flex justify-between text-white/40 text-xs mt-1">
+                    <span>1</span>
+                    <span>20</span>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-white/70 mb-2">المستوى</label>
+                  <div className="flex gap-3">
+                    {(['easy', 'medium', 'hard'] as const).map((level) => (
+                      <label key={level} className="flex items-center gap-2 cursor-pointer">
+                        <input
+                          type="radio"
+                          name="ai-difficulty"
+                          checked={aiDifficulty === level}
+                          onChange={() => setAiDifficulty(level)}
+                          className="w-4 h-4"
+                        />
+                        <span>{DIFFICULTY_LABELS[level]}</span>
+                      </label>
+                    ))}
+                  </div>
+                </div>
+
+                <div className="flex gap-3 mt-6">
+                  <GradientButton
+                    variant="cyan"
+                    onClick={handleAIGenerate}
+                    disabled={aiGenerating || !aiCategory.trim()}
+                    className="flex-1"
+                  >
+                    {aiGenerating ? 'جاري الإنشاء...' : 'إنشاء'}
+                  </GradientButton>
+                  <GradientButton
+                    variant="purple"
+                    onClick={() => setShowAIGenerateModal(false)}
+                    className="flex-1"
+                  >
+                    إلغاء
+                  </GradientButton>
+                </div>
+              </div>
+            ) : (
+              // Preview generated questions
+              <div>
+                <p className="text-white/60 mb-4">
+                  تم إنشاء {aiPreview.length} سؤال — احذف الأسئلة غير المناسبة ثم اضغط "استيراد"
+                </p>
+
+                <div className="space-y-3 mb-6 max-h-[50vh] overflow-y-auto">
+                  {aiPreview.map((q, index) => (
+                    <div
+                      key={index}
+                      className={`rounded-xl p-3 flex items-start gap-3 transition-colors ${
+                        q._excluded ? 'bg-red-500/10 opacity-50' : 'bg-white/5'
+                      }`}
+                    >
+                      <div className="flex-1" dir="rtl">
+                        <p className="font-semibold mb-1">{q.question_text}</p>
+                        <p className="text-white/60 text-sm">الإجابة: {q.correct_answer}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAiPreview((prev) =>
+                            prev!.map((item, i) =>
+                              i === index ? { ...item, _excluded: !item._excluded } : item
+                            )
+                          );
+                        }}
+                        className={`p-2 rounded-lg transition-colors shrink-0 ${
+                          q._excluded
+                            ? 'hover:bg-green-500/20 text-green-400'
+                            : 'hover:bg-red-500/20 text-red-400'
+                        }`}
+                        title={q._excluded ? 'استعادة' : 'حذف'}
+                      >
+                        {q._excluded ? '↩️' : '✕'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="flex gap-3">
+                  <GradientButton variant="cyan" onClick={handleAIImport} className="flex-1">
+                    استيراد ({aiPreview.filter((q) => !q._excluded).length})
+                  </GradientButton>
+                  <GradientButton
+                    variant="purple"
+                    onClick={() => setAiPreview(null)}
+                    className="flex-1"
+                  >
+                    رجوع
+                  </GradientButton>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Lies Management Modal */}
+      {showLiesModal && liesQuestion && (
+        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="glass max-w-lg w-full rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
+            <h3 className="text-xl font-bold mb-2">الإجابات المضللة</h3>
+            <div className="bg-white/5 rounded-xl p-3 mb-4" dir="rtl">
+              <p className="text-white/70 text-sm mb-1">السؤال:</p>
+              <p className="font-semibold">{liesQuestion.question_text}</p>
+              <p className="text-cyan-300 text-sm mt-1">الإجابة: {liesQuestion.correct_answer}</p>
+            </div>
+
+            {liesLoading ? (
+              <div className="flex justify-center py-8">
+                <LoadingSpinner size="md" />
+              </div>
+            ) : (
+              <>
+                {questionLies.length === 0 ? (
+                  <p className="text-center text-white/40 py-6">لا توجد إجابات مضللة بعد</p>
+                ) : (
+                  <div className="space-y-2 mb-4 max-h-[40vh] overflow-y-auto">
+                    {questionLies.map((lie) => (
+                      <div key={lie.id} className="bg-white/5 rounded-xl p-3 flex items-center gap-3">
+                        <span className="flex-1" dir="rtl">{lie.lie_text}</span>
+                        <span className={`px-2 py-0.5 rounded text-xs shrink-0 ${
+                          lie.source === 'ai' ? 'bg-cyan-500/20 text-cyan-300' : 'bg-purple-500/20 text-purple-300'
+                        }`}>
+                          {lie.source === 'ai' ? 'ذكاء اصطناعي' : 'يدوي'}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteLie(lie.id)}
+                          className="p-1 hover:bg-red-500/20 rounded-lg transition-colors text-red-400 shrink-0"
+                          title="حذف"
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            )}
+
+            {/* Manual lie input */}
+            <div className="flex gap-2 mt-4">
+              <input
+                type="text"
+                value={newLieText}
+                onChange={(e) => setNewLieText(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') handleAddManualLie(); }}
+                className="flex-1 glass px-4 py-2 rounded-xl text-white outline-none focus:ring-2 focus:ring-purple-500 text-sm"
+                dir="rtl"
+                placeholder="أضف إجابة مضللة يدوياً..."
+              />
+              <button
+                type="button"
+                onClick={handleAddManualLie}
+                disabled={!newLieText.trim()}
+                className="px-4 py-2 rounded-xl bg-purple-500/20 text-purple-300 hover:bg-purple-500/30 transition-colors disabled:opacity-30 disabled:cursor-not-allowed text-sm shrink-0"
+              >
+                إضافة
+              </button>
+            </div>
+
+            {/* AI generation controls */}
+            <div className="mt-4 bg-white/5 rounded-xl p-3">
+              <label htmlFor="ai-lie-count" className="block text-white/70 text-sm mb-2">
+                عدد الأكاذيب بالذكاء الاصطناعي: {aiLieCount}
+              </label>
+              <input
+                id="ai-lie-count"
+                type="range"
+                min={1}
+                max={5}
+                value={aiLieCount}
+                onChange={(e) => setAiLieCount(Number(e.target.value))}
+                className="w-full mb-3"
+                aria-label="عدد الأكاذيب"
+              />
+              <div className="flex justify-between text-white/40 text-xs mb-3">
+                <span>1</span>
+                <span>5</span>
+              </div>
+              <GradientButton
+                variant="cyan"
+                onClick={handleGenerateLies}
+                disabled={liesGenerating}
+                className="w-full"
+              >
+                {liesGenerating ? 'جاري الإنشاء...' : `إنشاء ${aiLieCount} بالذكاء الاصطناعي`}
+              </GradientButton>
+            </div>
+
+            <div className="mt-3">
+              <GradientButton
+                variant="purple"
+                onClick={() => { setShowLiesModal(false); setLiesQuestion(null); setQuestionLies([]); setNewLieText(''); }}
+                className="w-full"
+              >
+                إغلاق
               </GradientButton>
             </div>
           </div>

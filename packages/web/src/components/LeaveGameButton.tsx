@@ -16,10 +16,10 @@ export const LeaveGameButton: React.FC<LeaveGameButtonProps> = ({
   const navigate = useNavigate();
   const leaveGame = useGameStore((state) => state.leaveGame);
 
-  const handleLeaveGame = () => {
+  const handleLeaveGame = async () => {
     const confirmed = window.confirm('هل أنت متأكد أنك تريد مغادرة اللعبة؟');
     if (confirmed) {
-      leaveGame();
+      await leaveGame();
       navigate('/', { replace: true });
     }
   };
@@ -52,3 +52,4 @@ export const LeaveGameButton: React.FC<LeaveGameButtonProps> = ({
     </button>
   );
 };
+
