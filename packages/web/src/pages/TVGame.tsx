@@ -153,6 +153,10 @@ function normalizeAnswerKey(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
 
+function getAnswerGroupKey(answerText: string, isCorrect: boolean): string {
+  return `${isCorrect ? 'truth' : 'lie'}:${normalizeAnswerKey(answerText)}`;
+}
+
 function getStageInfo(roundNumber: number): { stageNumber: number; questionInStage: number; totalQuestionsInStage: number } {
   if (roundNumber <= 3) {
     return { stageNumber: 1, questionInStage: roundNumber, totalQuestionsInStage: 3 };
@@ -321,7 +325,7 @@ export const TVGame: React.FC = () => {
   const combinedAnswers = useMemo(() => {
     const grouped = new Map<string, { id: string; answer_text: string }>();
     for (const answer of allAnswers) {
-      const key = normalizeAnswerKey(answer.answer_text);
+      const key = getAnswerGroupKey(answer.answer_text, !!answer.is_correct);
       if (!grouped.has(key)) {
         grouped.set(key, { id: answer.id, answer_text: answer.answer_text });
       }

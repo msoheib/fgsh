@@ -37,6 +37,11 @@ function normalizeAnswerKey(value: string): string {
   return value.trim().toLocaleLowerCase();
 }
 
+function getAnswerGroupKey(answerText: string, isCorrect: boolean): string {
+  // Keep truth and lies in separate groups even if text matches.
+  return `${isCorrect ? 'truth' : 'lie'}:${normalizeAnswerKey(answerText)}`;
+}
+
 // Minimal haptic feedback helper
 const vibrate = (pattern: number | number[]) => {
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -106,7 +111,7 @@ export const Game: React.FC = () => {
     }>();
 
     for (const answer of allAnswers) {
-      const key = normalizeAnswerKey(answer.answer_text);
+      const key = getAnswerGroupKey(answer.answer_text, !!answer.is_correct);
       if (!grouped.has(key)) {
         grouped.set(key, {
           id: answer.id,
