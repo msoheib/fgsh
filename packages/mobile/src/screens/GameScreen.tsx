@@ -36,7 +36,8 @@ export const GameScreen: React.FC = () => {
     }>();
 
     for (const answer of allAnswers) {
-      const key = answer.answer_text.trim().toLocaleLowerCase();
+      // Keep truth and lies separate even if they share identical text.
+      const key = `${answer.is_correct ? 'truth' : 'lie'}:${answer.answer_text.trim().toLocaleLowerCase()}`;
       if (!grouped.has(key)) {
         grouped.set(key, {
           id: answer.id,

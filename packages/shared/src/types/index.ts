@@ -34,6 +34,15 @@ export interface Question {
   category: string | null;
   difficulty: 'easy' | 'medium' | 'hard';
   language: 'ar' | 'en';
+  source?: 'manual' | 'ai';
+  created_at: string;
+}
+
+export interface QuestionLie {
+  id: string;
+  question_id: string;
+  lie_text: string;
+  source: 'ai' | 'manual';
   created_at: string;
 }
 

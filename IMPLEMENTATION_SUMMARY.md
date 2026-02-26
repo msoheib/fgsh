@@ -8,7 +8,7 @@
 
 > "Move the 'phase is complete' check off the host UI and into a durable place..."
 
-You were absolutely right. The client-side phase captain pattern was:
+You were absolutely right. The client-side phase captain pattern wa not goods:
 - **Fragile**: Required designated captain with failover logic
 - **Unreliable**: Broke if captain disconnected during transitions
 - **Complex**: 50+ lines of coordination code

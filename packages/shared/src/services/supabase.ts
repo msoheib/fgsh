@@ -10,7 +10,11 @@ export interface SupabaseOptions {
 
 export function initializeSupabase(url: string, anonKey: string, options?: SupabaseOptions) {
   if (!supabaseClient) {
-    const storage = options?.storage || (typeof window !== 'undefined' ? window.localStorage : undefined);
+    const browserStorage = (() => {
+      const g = globalThis as { localStorage?: any };
+      return g.localStorage;
+    })();
+    const storage = options?.storage || browserStorage;
     const detectSessionInUrl = options?.detectSessionInUrl ?? true;
 
     supabaseClient = createClient(url, anonKey, {

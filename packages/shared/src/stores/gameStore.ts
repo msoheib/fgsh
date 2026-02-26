@@ -431,8 +431,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         onPresenceJoin: (presence) => {
           console.log('👤 Player joined (presence):', presence.nickname);
         },
-        onPresenceLeave: (presence) => {
+        onPresenceLeave: async (presence) => {
           console.log('👤 Player left (presence):', presence.nickname);
+          const leftPlayerId = presence.player_id;
+          const { game } = get();
+
+          if (leftPlayerId && game?.phase_captain_id === leftPlayerId) {
+            console.log('⚠️ Presence leave detected for current captain. Triggering failover...');
+            await get().promoteNewCaptain(leftPlayerId);
+          }
         },
       },
       // Pass player info for presence tracking
@@ -653,8 +660,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         onPresenceJoin: (presence) => {
           console.log('📺 [Display Mode] Player joined (presence):', presence.nickname);
         },
-        onPresenceLeave: (presence) => {
+        onPresenceLeave: async (presence) => {
           console.log('📺 [Display Mode] Player left (presence):', presence.nickname);
+          const leftPlayerId = presence.player_id;
+          const { game } = get();
+
+          if (leftPlayerId && game?.phase_captain_id === leftPlayerId) {
+            console.log('📺 [Display Mode] Captain left presence. Triggering failover...');
+            await get().promoteNewCaptain(leftPlayerId);
+          }
         },
       }
       // No player info for display mode - don't pass third parameter
@@ -681,9 +695,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     const oldSession = getGameSession();
     if (oldSession && oldSession.playerId) {
       try {
-        // Mark player as disconnected in old game
-        await GameService.updatePlayerStatus(oldSession.playerId, 'disconnected');
-        console.log('🔌 Disconnected from old game before joining new one');
+        if (oldSession.gameId) {
+          await GameService.leaveGameAsPlayer(oldSession.gameId, oldSession.playerId);
+          console.log('🔌 Left old game with failover before joining new one');
+        } else {
+          await GameService.updatePlayerStatus(oldSession.playerId, 'disconnected');
+          console.log('🔌 Disconnected from old game before joining new one');
+        }
       } catch (err) {
         console.error('Failed to disconnect from old game:', err);
       }
@@ -960,8 +978,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         onPresenceJoin: (presence) => {
           console.log('👤 Player joined (presence):', presence.nickname);
         },
-        onPresenceLeave: (presence) => {
+        onPresenceLeave: async (presence) => {
           console.log('👤 Player left (presence):', presence.nickname);
+          const leftPlayerId = presence.player_id;
+          const { game } = get();
+
+          if (leftPlayerId && game?.phase_captain_id === leftPlayerId) {
+            console.log('⚠️ Presence leave detected for current captain. Triggering failover...');
+            await get().promoteNewCaptain(leftPlayerId);
+          }
         },
       },
       // Pass player info for presence tracking
@@ -1515,8 +1540,15 @@ export const useGameStore = create<GameState>((set, get) => ({
         onPresenceJoin: (presence) => {
           console.log('👤 Player joined (presence):', presence.nickname);
         },
-        onPresenceLeave: (presence) => {
+        onPresenceLeave: async (presence) => {
           console.log('👤 Player left (presence):', presence.nickname);
+          const leftPlayerId = presence.player_id;
+          const { game } = get();
+
+          if (leftPlayerId && game?.phase_captain_id === leftPlayerId) {
+            console.log('⚠️ Presence leave detected for current captain. Triggering failover...');
+            await get().promoteNewCaptain(leftPlayerId);
+          }
         },
       },
       {
@@ -1606,7 +1638,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Leave game
   leaveGame: async () => {
-    const { game, currentPlayer, isPhaseCaptain, isDisplayMode } = get();
+    const { game, currentPlayer, isDisplayMode } = get();
 
     if (!game) {
       clearGameSession();
@@ -1614,31 +1646,37 @@ export const useGameStore = create<GameState>((set, get) => ({
       return;
     }
 
-    // Display mode or phase captain: end the game for everyone
-    if (isDisplayMode || isPhaseCaptain) {
+    const gameId = game.id;
+    const playerId = currentPlayer?.id || null;
+    const wasDisplayMode = isDisplayMode;
+
+    // Clear local state immediately so user is fully out of the room.
+    clearGameSession();
+    get().reset();
+
+    // Display mode leaving: end the game for everyone
+    if (wasDisplayMode) {
       try {
-        console.log('🔚 Display/Captain leaving - ending game for all players');
-        await GameService.endGame(game.id);
+        console.log('🔚 Display leaving - ending game for all players');
+        await GameService.endGame(gameId);
       } catch (err) {
-        console.error('Failed to end game when display/captain left:', err);
+        console.error('Failed to end game when display left:', err);
+      }
+      return;
+    }
+
+    // Player leaving: atomic disconnect + captain failover on server
+    if (playerId) {
+      try {
+        const leaveResult = await GameService.leaveGameAsPlayer(gameId, playerId);
+        console.log('👋 Leave result:', leaveResult);
+      } catch (err) {
+        console.error('Failed to leave game with failover:', err);
+        GameService.updatePlayerStatus(playerId, 'disconnected').catch(updateErr => {
+          console.error('Fallback disconnect failed:', updateErr);
+        });
       }
     }
-
-    // Players: mark disconnected
-    if (currentPlayer && !isDisplayMode) {
-      GameService.updatePlayerStatus(currentPlayer.id, 'disconnected').catch(err => {
-        console.error('Failed to update player status:', err);
-      });
-    }
-
-    // Unsubscribe from realtime
-    RealtimeService.unsubscribe(game.id);
-
-    // Clear localStorage session
-    clearGameSession();
-
-    // Reset store state
-    get().reset();
   },
 
   // Set all players

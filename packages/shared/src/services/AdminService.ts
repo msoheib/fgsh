@@ -1,5 +1,5 @@
 import { getSupabase } from './supabase';
-import type { Question } from '../types';
+import type { Question, QuestionLie } from '../types';
 
 export interface AdminUser {
   id: string;
@@ -221,6 +221,162 @@ export const AdminService = {
     }
 
     return { success: data?.length || 0, failed: questions.length - (data?.length || 0) };
+  },
+
+  // ==================== LLM GENERATION ====================
+
+  /**
+   * Generate questions via LLM (admin only)
+   * Returns generated questions for preview — NOT auto-inserted into DB
+   */
+  async generateQuestions(params: {
+    category: string;
+    count: number;
+    difficulty: 'easy' | 'medium' | 'hard';
+  }): Promise<{ questions: Array<{ question_text: string; correct_answer: string }>; provider: string }> {
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase.functions.invoke('generate-content', {
+      body: {
+        action: 'generate-questions',
+        category: params.category,
+        count: params.count,
+        difficulty: params.difficulty,
+      },
+    });
+
+    if (error) {
+      console.error('Failed to generate questions:', error);
+      throw new Error(error.message || 'فشل في إنشاء الأسئلة');
+    }
+
+    if (!data?.success) {
+      throw new Error(data?.error || 'فشل في إنشاء الأسئلة');
+    }
+
+    return { questions: data.questions, provider: data.provider };
+  },
+
+  /**
+   * Generate lies for a question via LLM (admin only)
+   * Lies are inserted into question_lies table and returned for preview
+   */
+  async generateLies(params: {
+    question_id: string;
+    question_text: string;
+    correct_answer: string;
+    count: number;
+  }): Promise<{ lies: string[]; inserted: number; provider: string }> {
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase.functions.invoke('generate-content', {
+      body: {
+        action: 'generate-lies',
+        question_id: params.question_id,
+        question_text: params.question_text,
+        correct_answer: params.correct_answer,
+        count: params.count,
+      },
+    });
+
+    if (error) {
+      console.error('Failed to generate lies:', error);
+      throw new Error(error.message || 'فشل في إنشاء الإجابات المضللة');
+    }
+
+    if (!data?.success) {
+      throw new Error(data?.error || 'فشل في إنشاء الإجابات المضللة');
+    }
+
+    return { lies: data.lies, inserted: data.inserted, provider: data.provider };
+  },
+
+  // ==================== QUESTION LIES MANAGEMENT ====================
+
+  /**
+   * Get all lies for a specific question
+   */
+  async getQuestionLies(questionId: string): Promise<QuestionLie[]> {
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('question_lies')
+      .select('*')
+      .eq('question_id', questionId)
+      .order('created_at', { ascending: false });
+
+    if (error) {
+      console.error('Failed to fetch question lies:', error);
+      throw error;
+    }
+
+    return data || [];
+  },
+
+  /**
+   * Delete a specific lie
+   */
+  async deleteQuestionLie(lieId: string): Promise<void> {
+    const supabase = getSupabase();
+
+    const { error } = await supabase
+      .from('question_lies')
+      .delete()
+      .eq('id', lieId);
+
+    if (error) {
+      console.error('Failed to delete lie:', error);
+      throw error;
+    }
+  },
+
+  /**
+   * Manually add a lie for a question
+   */
+  async addQuestionLie(questionId: string, lieText: string): Promise<QuestionLie> {
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('question_lies')
+      .insert({
+        question_id: questionId,
+        lie_text: lieText,
+        source: 'manual',
+      })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Failed to add lie:', error);
+      throw error;
+    }
+
+    return data;
+  },
+
+  /**
+   * Get lie counts for multiple questions (for table indicator)
+   */
+  async getQuestionLieCounts(questionIds: string[]): Promise<Record<string, number>> {
+    if (questionIds.length === 0) return {};
+
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('question_lies')
+      .select('question_id')
+      .in('question_id', questionIds);
+
+    if (error) {
+      console.error('Failed to fetch lie counts:', error);
+      return {};
+    }
+
+    const counts: Record<string, number> = {};
+    for (const row of data || []) {
+      counts[row.question_id] = (counts[row.question_id] || 0) + 1;
+    }
+    return counts;
   },
 
   // ==================== USER MANAGEMENT ====================

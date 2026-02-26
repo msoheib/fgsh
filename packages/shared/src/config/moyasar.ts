@@ -93,8 +93,12 @@ export const MOYASAR_CONFIG = {
 
   // Callback URLs (will be set at runtime based on environment)
   getCallbackUrl: (planId: string): string => {
-    const baseUrl = typeof window !== 'undefined'
-      ? window.location.origin
+    const browserOrigin = (() => {
+      const g = globalThis as { location?: { origin?: string } };
+      return g.location?.origin;
+    })();
+    const baseUrl = browserOrigin
+      ? browserOrigin
       : process.env.VITE_APP_URL || 'http://localhost:5173';
     return `${baseUrl}/payment/callback?plan=${planId}`;
   },

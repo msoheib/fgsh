@@ -477,6 +477,42 @@ export class GameService {
   }
 
   /**
+   * Leave a game as player with server-side captain failover.
+   * If captain leaves, server promotes next eligible player.
+   * If no connected players remain, server finishes the game.
+   */
+  static async leaveGameAsPlayer(
+    gameId: string,
+    playerId: string
+  ): Promise<{ gameEnded: boolean; newCaptainId: string | null; message: string }> {
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase.rpc('leave_game_as_player', {
+      p_game_id: gameId,
+      p_player_id: playerId,
+    });
+
+    if (error) {
+      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'No response from leave_game_as_player');
+    }
+
+    if (result.success === false) {
+      throw new GameError(ErrorType.CONNECTION_LOST, result.message || 'Failed to leave game');
+    }
+
+    return {
+      gameEnded: !!result.game_ended,
+      newCaptainId: result.new_captain_id ?? null,
+      message: result.message || 'Player left game',
+    };
+  }
+
+  /**
    * Manually advance to the next round (Host only)
    */
   static async advanceToNextRound(gameId: string, playerId: string): Promise<void> {

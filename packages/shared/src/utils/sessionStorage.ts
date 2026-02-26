@@ -16,12 +16,25 @@ export interface GameSession {
 const SESSION_KEY = 'fibbage_game_session';
 const SESSION_EXPIRY_MS = 4 * 60 * 60 * 1000; // 4 hours
 
+type SessionStorageLike = {
+  setItem: (key: string, value: string) => void;
+  getItem: (key: string) => string | null;
+  removeItem: (key: string) => void;
+};
+
+function getSessionStorageSafe(): SessionStorageLike | null {
+  const g = globalThis as { sessionStorage?: SessionStorageLike };
+  return g.sessionStorage || null;
+}
+
 /**
  * Save game session to localStorage
  */
 export function saveGameSession(session: GameSession): void {
   try {
-    sessionStorage.setItem(SESSION_KEY, JSON.stringify(session));
+    const storage = getSessionStorageSafe();
+    if (!storage) return;
+    storage.setItem(SESSION_KEY, JSON.stringify(session));
     console.log('💾 Game session saved to sessionStorage', session);
   } catch (error) {
     console.error('Failed to save game session:', error);
@@ -34,7 +47,9 @@ export function saveGameSession(session: GameSession): void {
  */
 export function getGameSession(): GameSession | null {
   try {
-    const data = sessionStorage.getItem(SESSION_KEY);
+    const storage = getSessionStorageSafe();
+    if (!storage) return null;
+    const data = storage.getItem(SESSION_KEY);
     if (!data) return null;
 
     const session: GameSession = JSON.parse(data);
@@ -62,7 +77,9 @@ export function getGameSession(): GameSession | null {
  */
 export function clearGameSession(): void {
   try {
-    sessionStorage.removeItem(SESSION_KEY);
+    const storage = getSessionStorageSafe();
+    if (!storage) return;
+    storage.removeItem(SESSION_KEY);
     console.log('🗑️ Game session cleared from sessionStorage');
     
     // Also cleanup all realtime subscriptions to prevent ghost connections

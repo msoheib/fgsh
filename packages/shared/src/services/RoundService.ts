@@ -15,6 +15,11 @@ export class RoundService {
     return value.trim().toLocaleLowerCase();
   }
 
+  private static getAnswerGroupKey(value: string, isCorrect: boolean): string {
+    // Keep truth and lies separate, even when text is identical.
+    return `${isCorrect ? 'truth' : 'lie'}:${this.normalizeAnswerKey(value)}`;
+  }
+
   /**
    * Create a new round with a random question
    */
@@ -178,7 +183,8 @@ export class RoundService {
         }
       }
 
-      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+      const errorCode = error.code ? ` [${error.code}]` : '';
+      throw new GameError(ErrorType.CONNECTION_LOST, `Vote insert failed${errorCode}: ${error.message}`);
     }
 
     return data;
@@ -265,6 +271,21 @@ export class RoundService {
       .single();
 
     if (error) {
+      const errorText = `${error.message || ''} ${error.details || ''} ${error.hint || ''}`.toLocaleLowerCase();
+      const duplicateByAnswerConstraint = error.code === '23505' && (
+        errorText.includes('answer_id') ||
+        errorText.includes('round_id, answer_id') ||
+        errorText.includes('votes_round_id_answer_id') ||
+        errorText.includes('votes_answer_id')
+      );
+
+      if (duplicateByAnswerConstraint) {
+        throw new GameError(
+          ErrorType.CONNECTION_LOST,
+          'Vote constraint mismatch detected. Multiple players must be able to vote the same answer.'
+        );
+      }
+
       // Handle duplicate vote gracefully (e.g. double-click, retry after reconnect)
       if (error.code === '23505') {
         console.log('⚠️ Duplicate vote detected, returning existing record');
@@ -317,6 +338,7 @@ export class RoundService {
       id: string;
       text: string;
       isCorrect: boolean;
+      isSystemLie: boolean;
       authorId: string | null;
       authorName: string | null;
       voters: Array<{ id: string; name: string }>;
@@ -372,7 +394,7 @@ export class RoundService {
     }>();
 
     for (const ans of answers || []) {
-      const key = this.normalizeAnswerKey(ans.answer_text);
+      const key = this.getAnswerGroupKey(ans.answer_text, !!ans.is_correct);
       if (!grouped.has(key)) {
         grouped.set(key, {
           id: ans.id,
@@ -402,17 +424,23 @@ export class RoundService {
       }
     }
 
-    const revealAnswers = Array.from(grouped.values()).map((group) => ({
-      id: group.id,
-      text: group.text,
-      isCorrect: group.isCorrect,
-      authorId: group.isCorrect || group.authorIds.size === 0 ? null : Array.from(group.authorIds)[0],
-      authorName: group.isCorrect
-        ? null
-        : Array.from(group.authorNames).join(' + '),
-      voters: Array.from(group.voters.values()),
-      voteCount: group.voters.size,
-    }));
+    const revealAnswers = Array.from(grouped.values()).map((group) => {
+      const isSystemLie = !group.isCorrect && group.authorIds.size === 0;
+      return {
+        id: group.id,
+        text: group.text,
+        isCorrect: group.isCorrect,
+        isSystemLie,
+        authorId: group.isCorrect || group.authorIds.size === 0 ? null : Array.from(group.authorIds)[0],
+        authorName: group.isCorrect
+          ? null
+          : isSystemLie
+            ? 'النظام'
+            : Array.from(group.authorNames).join(' + '),
+        voters: Array.from(group.voters.values()),
+        voteCount: group.voters.size,
+      };
+    });
 
     // Sort: lies with votes first, then correct answer last
     revealAnswers.sort((a, b) => {
