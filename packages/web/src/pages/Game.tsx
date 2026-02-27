@@ -49,6 +49,31 @@ const vibrate = (pattern: number | number[]) => {
   }
 };
 
+const playWarningBeep = () => {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+
+    const ctx = new AudioCtx();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+
+    oscillator.type = 'sine';
+    oscillator.frequency.value = 880;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.08, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.16);
+
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.17);
+    oscillator.onended = () => { ctx.close().catch(() => undefined); };
+  } catch {
+    // Browser may block autoplay audio; ignore.
+  }
+};
+
 interface CategoryPromptState {
   roundNumber: number;
   options: string[];
@@ -87,6 +112,7 @@ export const Game: React.FC = () => {
   const categoryResolverRef = useRef<((value: string | null) => void) | null>(null);
   const forceAdvanceKeyRef = useRef<string | null>(null);
   const phaseTimerInitializedRef = useRef<string | null>(null);
+  const warningBeepSecondRef = useRef<number | null>(null);
   const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? players[0]?.id ?? null;
   const canControlFlow = !!currentPlayer && (controllerPlayerId ? currentPlayer.id === controllerPlayerId : true);
   const revealEstimateSeconds = Math.ceil(
@@ -173,7 +199,7 @@ export const Game: React.FC = () => {
       new Set((data || [])
         .map((item) => item.category)
         .filter((category): category is string => !!category && category.trim().length > 0))
-    );
+    ).sort((a, b) => a.localeCompare(b, 'ar'));
 
     if (options.length === 0) {
       return null;
@@ -404,6 +430,17 @@ export const Game: React.FC = () => {
     };
   }, [currentRound?.id, timerActive, setTimeRemaining, setTimerActive]);
 
+  // Timer warning sound for the final 5 seconds.
+  useEffect(() => {
+    if (!currentRound || !timerActive) return;
+    if (roundStatus !== 'answering' && roundStatus !== 'voting') return;
+    if (timeRemaining <= 0 || timeRemaining > 5) return;
+    if (warningBeepSecondRef.current === timeRemaining) return;
+
+    warningBeepSecondRef.current = timeRemaining;
+    playWarningBeep();
+  }, [currentRound?.id, timerActive, roundStatus, timeRemaining]);
+
   // Handle timer expiration - call server-side force_advance_round
   useEffect(() => {
     if (!currentRound || !canControlFlow || timeRemaining !== 0) return;
@@ -459,6 +496,10 @@ export const Game: React.FC = () => {
       phaseTimerInitializedRef.current = roundStatus;
     }
   }, [currentRound?.id, roundStatus, timeRemaining]);
+
+  useEffect(() => {
+    warningBeepSecondRef.current = null;
+  }, [currentRound?.id, roundStatus]);
 
   // Recovery if stuck
   useEffect(() => {

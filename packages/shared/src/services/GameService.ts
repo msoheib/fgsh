@@ -582,9 +582,13 @@ export class GameService {
   static async endGame(gameId: string): Promise<void> {
     const supabase = getSupabase();
 
-    await supabase
+    const { error } = await supabase
       .from('games')
       .update({ status: 'finished' })
       .eq('id', gameId);
+
+    if (error) {
+      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+    }
   }
 }

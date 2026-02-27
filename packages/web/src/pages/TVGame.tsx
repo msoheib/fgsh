@@ -157,6 +157,28 @@ function getAnswerGroupKey(answerText: string, isCorrect: boolean): string {
   return `${isCorrect ? 'truth' : 'lie'}:${normalizeAnswerKey(answerText)}`;
 }
 
+function playTvWarningBeep() {
+  try {
+    const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioCtx) return;
+    const ctx = new AudioCtx();
+    const oscillator = ctx.createOscillator();
+    const gain = ctx.createGain();
+    oscillator.type = 'square';
+    oscillator.frequency.value = 1046;
+    gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+    gain.gain.exponentialRampToValueAtTime(0.05, ctx.currentTime + 0.01);
+    gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + 0.12);
+    oscillator.connect(gain);
+    gain.connect(ctx.destination);
+    oscillator.start();
+    oscillator.stop(ctx.currentTime + 0.13);
+    oscillator.onended = () => { ctx.close().catch(() => undefined); };
+  } catch {
+    // Ignore browser autoplay restrictions.
+  }
+}
+
 function getStageInfo(roundNumber: number): { stageNumber: number; questionInStage: number; totalQuestionsInStage: number } {
   if (roundNumber <= 3) {
     return { stageNumber: 1, questionInStage: roundNumber, totalQuestionsInStage: 3 };
@@ -304,6 +326,7 @@ export const TVGame: React.FC = () => {
   const [revealComplete, setRevealComplete] = useState(false);
   const [categoryWaitSecondsLeft, setCategoryWaitSecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const warningBeepSecondRef = useRef<number | null>(null);
   const revealForRoundIdRef = useRef<string | null>(null); // Track which round reveal is for
   const confetti = useConfetti();
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
@@ -510,6 +533,21 @@ export const TVGame: React.FC = () => {
       }
     };
   }, [currentRound?.id, timerActive, setTimeRemaining, setTimerActive]);
+
+  // TV timer warning in final 5 seconds.
+  useEffect(() => {
+    if (!currentRound || !timerActive) return;
+    if (roundStatus !== 'answering' && roundStatus !== 'voting') return;
+    if (timeRemaining <= 0 || timeRemaining > 5) return;
+    if (warningBeepSecondRef.current === timeRemaining) return;
+
+    warningBeepSecondRef.current = timeRemaining;
+    playTvWarningBeep();
+  }, [currentRound?.id, timerActive, roundStatus, timeRemaining]);
+
+  useEffect(() => {
+    warningBeepSecondRef.current = null;
+  }, [currentRound?.id, roundStatus]);
 
   // Refresh scores when reveal is complete
   useEffect(() => {

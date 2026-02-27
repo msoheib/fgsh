@@ -24,6 +24,8 @@ export const GameScreen: React.FC = () => {
   const [selectedAnswerId, setSelectedAnswerId] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
   const progressAnim = useRef(new Animated.Value(1)).current;
+  const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? null;
+  const canControlFlow = !!currentPlayer && (!!controllerPlayerId ? currentPlayer.id === controllerPlayerId : false);
 
   const combinedAnswers = useMemo(() => {
     const grouped = new Map<string, {
@@ -274,7 +276,7 @@ export const GameScreen: React.FC = () => {
 
   // Handle timer expiration - call server-side force_advance_round
   useEffect(() => {
-    if (!currentRound || timeRemaining !== 0) {
+    if (!currentRound || timeRemaining !== 0 || !canControlFlow) {
       return;
     }
 
@@ -301,7 +303,7 @@ export const GameScreen: React.FC = () => {
     // Small delay to prevent multiple rapid calls
     const timer = setTimeout(handleTimerExpired, 500);
     return () => clearTimeout(timer);
-  }, [currentRound, timeRemaining]);
+  }, [currentRound, timeRemaining, canControlFlow]);
 
   // Loading guard - will redirect if no game/player
   if (!game || !currentPlayer) {

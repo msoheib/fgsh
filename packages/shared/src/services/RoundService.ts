@@ -66,17 +66,31 @@ export class RoundService {
 
     let { data: questions, error: questionError } = await questionQuery;
 
-    // Graceful fallback: if no question exists in this category, pick any available category
+    // Graceful fallback:
+    // 1) Keep selected category even if we must reuse a previous question.
+    // 2) Only then fall back to any category.
     if ((!questions || questions.length === 0) && category) {
-      const fallback = await supabase
+      const sameCategoryReuse = await supabase
+        .from('questions')
+        .select('*')
+        .eq('language', language)
+        .eq('category', category)
+        .limit(30);
+
+      questions = sameCategoryReuse.data;
+      questionError = sameCategoryReuse.error;
+    }
+
+    if ((!questions || questions.length === 0) && category) {
+      const fallbackAnyCategory = await supabase
         .from('questions')
         .select('*')
         .eq('language', language)
         .not('id', 'in', `(${usedIds.length > 0 ? usedIds.join(',') : '00000000-0000-0000-0000-000000000000'})`)
         .limit(30);
 
-      questions = fallback.data;
-      questionError = fallback.error;
+      questions = fallbackAnyCategory.data;
+      questionError = fallbackAnyCategory.error;
     }
 
     if (questionError || !questions || questions.length === 0) {

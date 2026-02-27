@@ -39,7 +39,10 @@ export function calculateRoundScores(
     votesByAnswer.get(vote.answer_id)!.push(vote);
   });
 
-  // Vote outcomes for voters: truth reward or lie penalty
+  // Vote outcomes for voters:
+  // - Correct answer: +1000
+  // - System lie (no player author): -500
+  // - Player lie: no penalty (0)
   votes.forEach((vote) => {
     const votedAnswer = answersById.get(vote.answer_id);
     if (!votedAnswer) return;
@@ -50,7 +53,7 @@ export function calculateRoundScores(
         points_earned: GAME_CONFIG.POINTS.CORRECT_ANSWER * multiplier,
         reason: 'correct_answer',
       });
-    } else {
+    } else if (!votedAnswer.player_id) {
       scores.push({
         player_id: vote.voter_id,
         points_earned: GAME_CONFIG.POINTS.FALL_FOR_LIE_PENALTY * multiplier,

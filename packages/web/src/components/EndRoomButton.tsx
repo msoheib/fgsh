@@ -30,9 +30,7 @@ export const EndRoomButton: React.FC<EndRoomButtonProps> = ({
       navigate('/', { replace: true });
     } catch (err) {
       console.error('Failed to end room:', err);
-      // Still navigate away even if end fails
-      clearGameSession();
-      navigate('/', { replace: true });
+      window.alert('تعذر إنهاء اللعبة. تأكد من الاتصال ثم حاول مرة أخرى.');
     }
   };
 
