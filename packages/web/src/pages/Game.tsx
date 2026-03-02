@@ -42,6 +42,15 @@ function getAnswerGroupKey(answerText: string, isCorrect: boolean): string {
   return `${isCorrect ? 'truth' : 'lie'}:${normalizeAnswerKey(answerText)}`;
 }
 
+function pickRandomItems<T>(items: T[], count: number): T[] {
+  const shuffled = [...items];
+  for (let i = shuffled.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, Math.min(count, shuffled.length));
+}
+
 // Minimal haptic feedback helper
 const vibrate = (pattern: number | number[]) => {
   if (typeof navigator !== 'undefined' && navigator.vibrate) {
@@ -89,6 +98,7 @@ export const Game: React.FC = () => {
     roundStatus,
     hasSubmittedAnswer,
     allAnswers,
+    myVote,
     hasSubmittedVote,
     submitAnswer,
     submitVote,
@@ -113,6 +123,8 @@ export const Game: React.FC = () => {
   const forceAdvanceKeyRef = useRef<string | null>(null);
   const phaseTimerInitializedRef = useRef<string | null>(null);
   const warningBeepSecondRef = useRef<number | null>(null);
+  const voteSubmitInFlightRef = useRef<boolean>(false);
+  const pendingVoteTargetRef = useRef<string | null>(null);
   const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? players[0]?.id ?? null;
   const canControlFlow = !!currentPlayer && (controllerPlayerId ? currentPlayer.id === controllerPlayerId : true);
   const revealEstimateSeconds = Math.ceil(
@@ -120,11 +132,29 @@ export const Game: React.FC = () => {
   );
   const reviewLockSeconds = Math.max(GAME_CONFIG.RESULTS_DISPLAY_DURATION, revealEstimateSeconds);
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
+  const isVotingOpen = roundStatus === 'voting' && timerActive && timeRemaining > 0;
   const isAwaitingStageCategorySelection = !!game &&
     game.status === 'playing' &&
     !currentRound &&
     game.current_round > 0 &&
     isStageStartRound(game.current_round);
+
+  const votingAnswers = useMemo(() => {
+    const truthKeys = new Set(
+      allAnswers
+        .filter((answer) => !!answer.is_correct)
+        .map((answer) => normalizeAnswerKey(answer.answer_text))
+    );
+
+    if (truthKeys.size === 0) {
+      return allAnswers;
+    }
+
+    return allAnswers.filter((answer) => {
+      if (answer.is_correct) return true;
+      return !truthKeys.has(normalizeAnswerKey(answer.answer_text));
+    });
+  }, [allAnswers]);
 
   const combinedAnswers = useMemo<CombinedAnswerOption[]>(() => {
     const grouped = new Map<string, {
@@ -136,7 +166,7 @@ export const Game: React.FC = () => {
       correctAnswerId: string | null;
     }>();
 
-    for (const answer of allAnswers) {
+    for (const answer of votingAnswers) {
       const key = getAnswerGroupKey(answer.answer_text, !!answer.is_correct);
       if (!grouped.has(key)) {
         grouped.set(key, {
@@ -169,40 +199,107 @@ export const Game: React.FC = () => {
       voteTargetId: group.correctAnswerId || group.answerIds[0],
       hasCorrectAnswer: group.hasCorrectAnswer,
     }));
-  }, [allAnswers]);
+  }, [votingAnswers]);
 
   const finishCategorySelection = useCallback((selectedCategory: string | null) => {
+    if (game) {
+      (async () => {
+        try {
+          const { getSupabase } = await import('@fakash/shared');
+          const supabase = getSupabase();
+          const roundNumber = categoryPrompt?.roundNumber || game.current_round;
+          if (!roundNumber || !selectedCategory) return;
+
+          await supabase
+            .from('game_category_prompts')
+            .upsert(
+              {
+                game_id: game.id,
+                round_number: roundNumber,
+                selected_category: selectedCategory,
+              },
+              { onConflict: 'game_id,round_number' }
+            );
+        } catch (err) {
+          console.warn('Failed to persist selected category:', err);
+        }
+      })();
+    }
+
     const resolver = categoryResolverRef.current;
     categoryResolverRef.current = null;
     setCategoryPrompt(null);
     if (resolver) {
       resolver(selectedCategory);
     }
-  }, []);
+  }, [categoryPrompt?.roundNumber, game]);
 
   const requestCategorySelection = useCallback(async (roundNumber: number): Promise<string | null> => {
+    if (!game) return null;
+
     const { getSupabase } = await import('@fakash/shared');
     const supabase = getSupabase();
 
-    const { data, error } = await supabase
-      .from('questions')
-      .select('category')
-      .eq('language', 'ar')
-      .not('category', 'is', null);
+    let options: string[] = [];
 
-    if (error) {
-      console.error('Failed to load categories:', error);
-      return null;
+    const existingPrompt = await supabase
+      .from('game_category_prompts')
+      .select('options')
+      .eq('game_id', game.id)
+      .eq('round_number', roundNumber)
+      .maybeSingle();
+
+    if (!existingPrompt.error) {
+      const rawOptions = (existingPrompt.data as any)?.options;
+      if (Array.isArray(rawOptions)) {
+        options = rawOptions.filter((value): value is string =>
+          typeof value === 'string' && value.trim().length > 0
+        );
+        options = options.slice(0, 4);
+      }
+    } else if (existingPrompt.error.code !== '42P01') {
+      console.warn('Failed to read existing category prompt:', existingPrompt.error);
     }
 
-    const options = Array.from(
-      new Set((data || [])
-        .map((item) => item.category)
-        .filter((category): category is string => !!category && category.trim().length > 0))
-    ).sort((a, b) => a.localeCompare(b, 'ar'));
-
     if (options.length === 0) {
-      return null;
+      const { data, error } = await supabase
+        .from('questions')
+        .select('category')
+        .eq('language', 'ar')
+        .not('category', 'is', null);
+
+      if (error) {
+        console.error('Failed to load categories:', error);
+        return null;
+      }
+
+      const allCategories = Array.from(
+        new Set((data || [])
+          .map((item) => item.category)
+          .filter((category): category is string => !!category && category.trim().length > 0))
+      );
+
+      if (allCategories.length === 0) {
+        return null;
+      }
+
+      options = pickRandomItems(allCategories, 4);
+
+      const savePrompt = await supabase
+        .from('game_category_prompts')
+        .upsert(
+          {
+            game_id: game.id,
+            round_number: roundNumber,
+            options,
+            selected_category: null,
+          },
+          { onConflict: 'game_id,round_number' }
+        );
+
+      if (savePrompt.error && savePrompt.error.code !== '42P01') {
+        console.warn('Failed to persist category prompt:', savePrompt.error);
+      }
     }
 
     return await new Promise<string | null>((resolve) => {
@@ -211,7 +308,7 @@ export const Game: React.FC = () => {
       setCategoryPrompt({ roundNumber, options });
       setCategorySecondsLeft(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
     });
-  }, []);
+  }, [game]);
 
   const getCategoryForRound = useCallback(async (roundNumber: number): Promise<string | null> => {
     if (!game) return null;
@@ -466,13 +563,13 @@ export const Game: React.FC = () => {
         });
         
         if (error) {
-          console.error('❌ Failed to force advance round:', error);
+          console.error('Failed to force advance round:', error);
           forceAdvanceKeyRef.current = null;
         } else {
-          console.log('✅ Server processing timer expiration');
+          console.log('Server processing timer expiration');
         }
       } catch (err) {
-        console.error('❌ Error calling force_advance_round:', err);
+        console.error('Error calling force_advance_round:', err);
         forceAdvanceKeyRef.current = null;
       }
     };
@@ -501,12 +598,24 @@ export const Game: React.FC = () => {
     warningBeepSecondRef.current = null;
   }, [currentRound?.id, roundStatus]);
 
+  useEffect(() => {
+    voteSubmitInFlightRef.current = false;
+    pendingVoteTargetRef.current = null;
+  }, [currentRound?.id, roundStatus]);
+
   // Recovery if stuck
   useEffect(() => {
     if (!game || !currentPlayer || (currentRound && question) || game.status !== 'playing' || isRecovering || !!categoryPrompt) return;
     const timer = setTimeout(() => recoverRoundState(), 3000);
     return () => clearTimeout(timer);
   }, [game, currentPlayer, currentRound, question, isRecovering, recoverRoundState, categoryPrompt]);
+
+  // Keep UI selection in sync with stored vote (rehydration/realtime).
+  useEffect(() => {
+    if (roundStatus === 'voting') {
+      setSelectedAnswer(myVote || null);
+    }
+  }, [currentRound?.id, roundStatus, myVote]);
 
   // Sync scores on round complete
   useEffect(() => {
@@ -655,18 +764,46 @@ export const Game: React.FC = () => {
     }
   };
 
+  const flushPendingVote = useCallback(async () => {
+    if (!currentPlayer || voteSubmitInFlightRef.current) {
+      return;
+    }
+
+    while (pendingVoteTargetRef.current) {
+      const targetAnswerId = pendingVoteTargetRef.current;
+      pendingVoteTargetRef.current = null;
+      voteSubmitInFlightRef.current = true;
+
+      try {
+        await submitVote(currentPlayer.id, targetAnswerId);
+      } catch (err) {
+        console.error('Failed to vote:', err);
+        voteSubmitInFlightRef.current = false;
+
+        if (pendingVoteTargetRef.current) {
+          continue;
+        }
+
+        vibrate([200, 100, 200]);
+        const persistedVote = useRoundStore.getState().myVote;
+        setSelectedAnswer(persistedVote || null);
+        useRoundStore.setState({ hasSubmittedVote: !!persistedVote });
+        return;
+      }
+
+      voteSubmitInFlightRef.current = false;
+    }
+  }, [currentPlayer, submitVote]);
+
   const handleSubmitVote = async (answerId: string) => {
-    if (hasSubmittedVote) return;
+    if (!isVotingOpen || !currentPlayer) return;
+    if (selectedAnswer === answerId) return;
+
+    setSelectedAnswer(answerId);
     vibrate(50);
     useRoundStore.setState({ hasSubmittedVote: true });
-    try {
-      await submitVote(currentPlayer.id, answerId);
-      setSelectedAnswer(answerId);
-    } catch (err) {
-      console.error('Failed to vote:', err);
-      vibrate([200, 100, 200]); // Error pattern
-      useRoundStore.setState({ hasSubmittedVote: false });
-    }
+    pendingVoteTargetRef.current = answerId;
+    void flushPendingVote();
   };
 
   const isFinalRound = currentRound.round_number === game.round_count;
@@ -761,8 +898,8 @@ export const Game: React.FC = () => {
                 return (
                   <button
                     key={answer.id}
-                    onClick={() => !hasSubmittedVote && !isOwn && handleSubmitVote(answer.voteTargetId)}
-                    disabled={hasSubmittedVote || isOwn}
+                    onClick={() => !isOwn && isVotingOpen && handleSubmitVote(answer.voteTargetId)}
+                    disabled={!isVotingOpen || isOwn}
                     className={`w-full p-3 rounded-xl text-right active:scale-95 transition-all duration-150 ${
                       isSelected
                         ? 'bg-cyan-500 text-white ring-2 ring-cyan-300 shadow-lg shadow-cyan-500/50'
@@ -778,7 +915,9 @@ export const Game: React.FC = () => {
               })}
             </div>
             {hasSubmittedVote && (
-              <p className="text-center text-xs text-white/50 mt-3">✅ تم التصويت</p>
+              <p className="text-center text-xs text-white/50 mt-3">
+                تم حفظ التصويت{isVotingOpen ? ' - يمكنك تغييره حتى ينتهي الوقت' : ''}
+              </p>
             )}
           </div>
         )}
@@ -821,3 +960,4 @@ export const Game: React.FC = () => {
     </div>
   );
 };
+

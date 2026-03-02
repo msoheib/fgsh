@@ -14,6 +14,7 @@ export const GameScreen: React.FC = () => {
     timerActive,
     roundStatus,
     allAnswers,
+    myVote,
     hasSubmittedAnswer,
     hasSubmittedVote,
     submitAnswer,
@@ -24,10 +25,25 @@ export const GameScreen: React.FC = () => {
   const [selectedAnswerId, setSelectedAnswerId] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
   const progressAnim = useRef(new Animated.Value(1)).current;
+  const voteSubmitInFlightRef = useRef(false);
+  const pendingVoteTargetRef = useRef<string | null>(null);
+  const forceAdvanceKeyRef = useRef<string | null>(null);
+  const phaseTimerInitializedRef = useRef<string | null>(null);
   const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? null;
   const canControlFlow = !!currentPlayer && (!!controllerPlayerId ? currentPlayer.id === controllerPlayerId : false);
+  const isVotingOpen = roundStatus === 'voting' && timerActive && timeRemaining > 0;
 
   const combinedAnswers = useMemo(() => {
+    const normalize = (value: string) => value.trim().toLocaleLowerCase();
+    const truthKeys = new Set(
+      allAnswers
+        .filter((answer) => !!answer.is_correct)
+        .map((answer) => normalize(answer.answer_text))
+    );
+    const votingAnswers = allAnswers.filter((answer) => (
+      answer.is_correct || !truthKeys.has(normalize(answer.answer_text))
+    ));
+
     const grouped = new Map<string, {
       id: string;
       answer_text: string;
@@ -37,9 +53,9 @@ export const GameScreen: React.FC = () => {
       correctAnswerId: string | null;
     }>();
 
-    for (const answer of allAnswers) {
+    for (const answer of votingAnswers) {
       // Keep truth and lies separate even if they share identical text.
-      const key = `${answer.is_correct ? 'truth' : 'lie'}:${answer.answer_text.trim().toLocaleLowerCase()}`;
+      const key = `${answer.is_correct ? 'truth' : 'lie'}:${normalize(answer.answer_text)}`;
       if (!grouped.has(key)) {
         grouped.set(key, {
           id: answer.id,
@@ -75,7 +91,7 @@ export const GameScreen: React.FC = () => {
   // Guard: redirect if no game or player
   useEffect(() => {
     if (!game || !currentPlayer) {
-      console.log('⚠️ No game or player, redirecting to Join screen');
+      console.log('No game or player, redirecting to Join screen');
       navigation.navigate('Join' as never);
     }
   }, [game, currentPlayer, navigation]);
@@ -84,7 +100,7 @@ export const GameScreen: React.FC = () => {
   const recoverRoundState = useCallback(async () => {
     if (!game || !currentPlayer) return;
 
-    console.log('🔄 Attempting to recover round state from server...');
+    console.log('Attempting to recover round state from server...');
     setIsRecovering(true);
 
     try {
@@ -94,12 +110,12 @@ export const GameScreen: React.FC = () => {
       const round = await RoundService.getCurrentRound(game.id);
 
       if (!round) {
-        console.log('⚠️ No active round found on server');
+        console.log('No active round found on server');
         setIsRecovering(false);
         return;
       }
 
-      console.log('✅ Found round on server:', round);
+      console.log('Found round on server:', round);
 
       // Fetch question
       const supabase = getSupabase();
@@ -110,7 +126,7 @@ export const GameScreen: React.FC = () => {
         .single();
 
       if (!q) {
-        console.log('⚠️ Failed to fetch question');
+        console.log('Failed to fetch question');
         setIsRecovering(false);
         return;
       }
@@ -161,10 +177,10 @@ export const GameScreen: React.FC = () => {
         isLoading: false,
       });
 
-      console.log('✅ Recovery complete! Round state restored from server');
+      console.log('Recovery complete! Round state restored from server');
       setIsRecovering(false);
     } catch (err) {
-      console.error('❌ Recovery failed:', err);
+      console.error('Recovery failed:', err);
       setIsRecovering(false);
     }
   }, [game, currentPlayer]);
@@ -178,7 +194,7 @@ export const GameScreen: React.FC = () => {
 
     // Delay recovery by 2s to avoid race with normal Realtime updates
     const timer = setTimeout(() => {
-      console.log('🔄 Stuck loading detected, attempting automatic recovery...', {
+      console.log('Stuck loading detected, attempting automatic recovery...', {
         hasGame: !!game,
         hasPlayer: !!currentPlayer,
         hasRound: !!currentRound,
@@ -200,6 +216,17 @@ export const GameScreen: React.FC = () => {
     }
   }, [currentRound?.id]);
 
+  useEffect(() => {
+    if (roundStatus === 'voting') {
+      setSelectedAnswerId(myVote || null);
+    }
+  }, [currentRound?.id, roundStatus, myVote]);
+
+  useEffect(() => {
+    voteSubmitInFlightRef.current = false;
+    pendingVoteTargetRef.current = null;
+  }, [currentRound?.id, roundStatus]);
+
   // Fetch fresh answers when entering voting to avoid stale options
   useEffect(() => {
     const fetchAnswers = async () => {
@@ -218,7 +245,7 @@ export const GameScreen: React.FC = () => {
 
   // Debug logging
   useEffect(() => {
-    console.log('🎮 GameScreen - State:', {
+    console.log('GameScreen - State:', {
       hasGame: !!game,
       hasCurrentRound: !!currentRound,
       hasQuestion: !!question,
@@ -265,7 +292,7 @@ export const GameScreen: React.FC = () => {
   useEffect(() => {
     if (timerActive && timeRemaining !== null && currentRound) {
       const progress = timeRemaining / currentRound.timer_duration;
-      console.log('🎬 Animating progress bar:', { timeRemaining, duration: currentRound.timer_duration, progress });
+      console.log('Animating progress bar:', { timeRemaining, duration: currentRound.timer_duration, progress });
       Animated.timing(progressAnim, {
         toValue: progress,
         duration: 1000,
@@ -276,9 +303,23 @@ export const GameScreen: React.FC = () => {
 
   // Handle timer expiration - call server-side force_advance_round
   useEffect(() => {
-    if (!currentRound || timeRemaining !== 0 || !canControlFlow) {
+    if (!currentRound || !canControlFlow || timeRemaining !== 0) {
       return;
     }
+    if (roundStatus !== 'answering' && roundStatus !== 'voting') {
+      return;
+    }
+
+    // Prevent stale zero from a previous phase from advancing the new phase.
+    if (phaseTimerInitializedRef.current !== roundStatus) {
+      return;
+    }
+
+    const forceKey = `${currentRound.id}:${roundStatus}`;
+    if (forceAdvanceKeyRef.current === forceKey) {
+      return;
+    }
+    forceAdvanceKeyRef.current = forceKey;
 
     const handleTimerExpired = async () => {
       console.log('⏰ Timer expired! Calling server-side force_advance_round...');
@@ -291,19 +332,35 @@ export const GameScreen: React.FC = () => {
         });
 
         if (error) {
-          console.error('❌ Failed to force advance round:', error);
+          console.error('Failed to force advance round:', error);
+          forceAdvanceKeyRef.current = null;
         } else {
-          console.log('✅ Server processing timer expiration');
+          console.log('Server processing timer expiration');
         }
       } catch (err) {
-        console.error('❌ Error calling force_advance_round:', err);
+        console.error('Error calling force_advance_round:', err);
+        forceAdvanceKeyRef.current = null;
       }
     };
 
     // Small delay to prevent multiple rapid calls
     const timer = setTimeout(handleTimerExpired, 500);
     return () => clearTimeout(timer);
-  }, [currentRound, timeRemaining, canControlFlow]);
+  }, [currentRound?.id, timeRemaining, roundStatus, canControlFlow]);
+
+  // Clear force-advance guard when timer is re-initialized for a phase.
+  useEffect(() => {
+    if (!currentRound) {
+      forceAdvanceKeyRef.current = null;
+      phaseTimerInitializedRef.current = null;
+      return;
+    }
+
+    if (timeRemaining > 0) {
+      forceAdvanceKeyRef.current = null;
+      phaseTimerInitializedRef.current = roundStatus;
+    }
+  }, [currentRound?.id, roundStatus, timeRemaining]);
 
   // Loading guard - will redirect if no game/player
   if (!game || !currentPlayer) {
@@ -344,21 +401,50 @@ export const GameScreen: React.FC = () => {
     }
   };
 
-  const handleVote = async (answerId: string) => {
-    if (!currentPlayer || hasSubmittedVote) {
+  const flushPendingVote = useCallback(async () => {
+    if (!currentPlayer || voteSubmitInFlightRef.current) {
       return;
     }
 
-    try {
-      // Optimistically block repeat taps
-      useRoundStore.setState({ hasSubmittedVote: true });
-      setSelectedAnswerId(answerId);
-      await submitVote(currentPlayer.id, answerId);
-    } catch (err) {
-      console.error('Failed to submit vote:', err);
-      // Allow retry on error
-      useRoundStore.setState({ hasSubmittedVote: false });
+    while (pendingVoteTargetRef.current) {
+      const targetAnswerId = pendingVoteTargetRef.current;
+      pendingVoteTargetRef.current = null;
+      voteSubmitInFlightRef.current = true;
+
+      try {
+        await submitVote(currentPlayer.id, targetAnswerId);
+      } catch (err) {
+        console.error('Failed to submit vote:', err);
+        voteSubmitInFlightRef.current = false;
+
+        if (pendingVoteTargetRef.current) {
+          continue;
+        }
+
+        const persistedVote = useRoundStore.getState().myVote;
+        setSelectedAnswerId(persistedVote || null);
+        useRoundStore.setState({ hasSubmittedVote: !!persistedVote });
+        return;
+      }
+
+      voteSubmitInFlightRef.current = false;
     }
+  }, [currentPlayer, submitVote]);
+
+  const handleVote = async (answerId: string) => {
+    if (!currentPlayer || !isVotingOpen) {
+      return;
+    }
+
+    if (selectedAnswerId === answerId) {
+      return;
+    }
+
+    // Optimistically set current selection and keep editable until timer ends.
+    useRoundStore.setState({ hasSubmittedVote: true });
+    setSelectedAnswerId(answerId);
+    pendingVoteTargetRef.current = answerId;
+    void flushPendingVote();
   };
 
   return (
@@ -416,11 +502,11 @@ export const GameScreen: React.FC = () => {
                     style={[
                       styles.answerCard,
                       selectedAnswerId === answer.voteTargetId && styles.answerCardSelected,
-                      (hasSubmittedVote || isOwnAnswer) && styles.answerCardDisabled,
+                      (!isVotingOpen || isOwnAnswer) && styles.answerCardDisabled,
                       isOwnAnswer && styles.ownAnswerCard,
                     ]}
-                    onPress={() => !isOwnAnswer && handleVote(answer.voteTargetId)}
-                    disabled={hasSubmittedVote || isOwnAnswer}
+                    onPress={() => !isOwnAnswer && isVotingOpen && handleVote(answer.voteTargetId)}
+                    disabled={!isVotingOpen || isOwnAnswer}
                     activeOpacity={0.7}
                   >
                     <Text style={styles.answerCardText}>{answer.answer_text}</Text>
@@ -432,7 +518,9 @@ export const GameScreen: React.FC = () => {
               })}
             </ScrollView>
             {hasSubmittedVote && (
-              <Text style={styles.waitingText}>في انتظار التصويت...</Text>
+              <Text style={styles.waitingText}>
+                تم حفظ التصويت{isVotingOpen ? ' - يمكنك تغييره حتى ينتهي الوقت' : ''}
+              </Text>
             )}
           </View>
         )}
@@ -655,3 +743,4 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
 });
+

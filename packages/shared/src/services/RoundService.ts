@@ -40,7 +40,7 @@ export class RoundService {
       .maybeSingle();
 
     if (existingRound) {
-      console.log('✅ Round already exists, returning existing round:', existingRound);
+      console.log('Round already exists, returning existing round:', existingRound);
       return { round: existingRound, question: existingRound.question! };
     }
 
@@ -129,7 +129,7 @@ export class RoundService {
 
     // Handle duplicate key error (race condition - another client created it simultaneously)
     if (roundError && roundError.code === '23505') {
-      console.log('⚠️ Duplicate key error, fetching existing round...');
+      console.log('Duplicate key error, fetching existing round...');
       const { data: existing } = await supabase
         .from('game_rounds')
         .select('*, question:questions(*)')
@@ -180,7 +180,7 @@ export class RoundService {
     if (error) {
       // Handle duplicate submissions gracefully (e.g. double-click, retry after reconnect)
       if (error.code === '23505') {
-        console.log('⚠️ Duplicate answer detected, returning existing record');
+        console.log('Duplicate answer detected, returning existing record');
         const { data: existingAnswer, error: fetchError } = await supabase
           .from('player_answers')
           .select('*')
@@ -247,8 +247,18 @@ export class RoundService {
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
 
+    const answers = data || [];
+    const truthKeys = new Set(
+      answers
+        .filter((answer) => !!answer.is_correct)
+        .map((answer) => this.normalizeAnswerKey(answer.answer_text))
+    );
+    const filteredAnswers = answers.filter((answer) => (
+      answer.is_correct || !truthKeys.has(this.normalizeAnswerKey(answer.answer_text))
+    ));
+
     // Shuffle answers for voting
-    const shuffled = (data || []).sort(() => Math.random() - 0.5);
+    const shuffled = filteredAnswers.sort(() => Math.random() - 0.5);
     return shuffled;
   }
 
@@ -273,14 +283,42 @@ export class RoundService {
       throw new GameError(ErrorType.CONNECTION_LOST, 'Cannot vote for own answer');
     }
 
+    // Preferred path: use RPC that supports updating vote choices until timer ends.
+    const { data: castVoteData, error: castVoteError } = await supabase.rpc('cast_vote', {
+      p_round_id: roundId,
+      p_voter_id: voterId,
+      p_answer_id: answerId,
+    });
+
+    if (!castVoteError) {
+      const vote = Array.isArray(castVoteData) ? castVoteData[0] : castVoteData;
+      if (vote) {
+        return vote as Vote;
+      }
+    }
+
+    // Backward compatibility fallback:
+    // - RPC missing (not yet deployed)
+    // - RPC exists but is outdated/broken (e.g. points_earned check drift)
+    const castVoteErrorText = `${castVoteError?.message || ''} ${castVoteError?.details || ''} ${castVoteError?.hint || ''}`.toLocaleLowerCase();
+    const rpcMissing = castVoteErrorText.includes('could not find the function public.cast_vote');
+    const rpcConstraintDrift = castVoteErrorText.includes('votes_points_earned_check');
+
+    if (castVoteError && !rpcMissing && !rpcConstraintDrift) {
+      throw new GameError(ErrorType.CONNECTION_LOST, castVoteError.message);
+    }
+
     const { data, error } = await supabase
       .from('votes')
-      .insert({
-        round_id: roundId,
-        voter_id: voterId,
-        answer_id: answerId,
-        points_earned: 0, // Will be calculated later
-      })
+      .upsert(
+        {
+          round_id: roundId,
+          voter_id: voterId,
+          answer_id: answerId,
+          points_earned: 0,
+        },
+        { onConflict: 'round_id,voter_id' }
+      )
       .select()
       .single();
 
@@ -293,6 +331,8 @@ export class RoundService {
         errorText.includes('votes_answer_id')
       );
 
+      const missingUpdatePolicy = error.code === '42501' && errorText.includes('row-level security');
+
       if (duplicateByAnswerConstraint) {
         throw new GameError(
           ErrorType.CONNECTION_LOST,
@@ -300,26 +340,15 @@ export class RoundService {
         );
       }
 
-      // Handle duplicate vote gracefully (e.g. double-click, retry after reconnect)
-      if (error.code === '23505') {
-        console.log('⚠️ Duplicate vote detected, returning existing record');
-        const { data: existingVote, error: fetchError } = await supabase
-          .from('votes')
-          .select('*')
-          .eq('round_id', roundId)
-          .eq('voter_id', voterId)
-          .single();
-
-        if (fetchError) {
-          throw new GameError(ErrorType.CONNECTION_LOST, fetchError.message);
-        }
-
-        if (existingVote) {
-          return existingVote;
-        }
+      if (missingUpdatePolicy) {
+        throw new GameError(
+          ErrorType.CONNECTION_LOST,
+          'Vote change requires cast_vote RPC migration. Please apply latest Supabase migrations.'
+        );
       }
 
-      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+      const errorCode = error.code ? ` [${error.code}]` : '';
+      throw new GameError(ErrorType.CONNECTION_LOST, `Vote insert failed${errorCode}: ${error.message}`);
     }
 
     return data;
@@ -396,6 +425,16 @@ export class RoundService {
       }
     }
 
+    const normalizedTruths = new Set(
+      (answers || [])
+        .filter((ans) => !!ans.is_correct)
+        .map((ans) => this.normalizeAnswerKey(ans.answer_text))
+    );
+
+    const effectiveAnswers = (answers || []).filter((ans) => (
+      ans.is_correct || !normalizedTruths.has(this.normalizeAnswerKey(ans.answer_text))
+    ));
+
     // Build grouped reveal data (same text answers are shown once)
     const grouped = new Map<string, {
       id: string;
@@ -407,7 +446,7 @@ export class RoundService {
       answerIds: string[];
     }>();
 
-    for (const ans of answers || []) {
+    for (const ans of effectiveAnswers) {
       const key = this.getAnswerGroupKey(ans.answer_text, !!ans.is_correct);
       if (!grouped.has(key)) {
         grouped.set(key, {
@@ -539,3 +578,5 @@ export class RoundService {
     return round;
   }
 }
+
+

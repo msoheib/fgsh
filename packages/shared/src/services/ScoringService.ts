@@ -147,10 +147,16 @@ export class ScoringService {
 
     const correctAnswer = answers?.find((a) => a.is_correct);
     const correctVotes = votes?.filter((v) => v.answer_id === correctAnswer?.id) || [];
+    const normalize = (value: string) => value.trim().toLocaleLowerCase();
+    const truthAnswerKeys = new Set(
+      (answers || [])
+        .filter((answer) => !!answer.is_correct)
+        .map((answer) => normalize(answer.answer_text))
+    );
 
     const fooledCount = new Map<string, number>();
     answers
-      ?.filter((a) => !a.is_correct)
+      ?.filter((a) => !a.is_correct && !truthAnswerKeys.has(normalize(a.answer_text)))
       .forEach((answer) => {
         const voteCount = votes?.filter((v) => v.answer_id === answer.id).length || 0;
         fooledCount.set(answer.player_id, voteCount);

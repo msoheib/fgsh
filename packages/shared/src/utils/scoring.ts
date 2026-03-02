@@ -23,6 +23,12 @@ export function calculateRoundScores(
   multiplier: number = 1
 ): ScoreResult[] {
   const scores: ScoreResult[] = [];
+  const normalize = (value: string) => value.trim().toLocaleLowerCase();
+  const truthAnswerKeys = new Set(
+    answers
+      .filter((answer) => !!answer.is_correct)
+      .map((answer) => normalize(answer.answer_text))
+  );
 
   // Create a map of answer_id -> votes
   const votesByAnswer = new Map<string, Vote[]>();
@@ -46,8 +52,9 @@ export function calculateRoundScores(
   votes.forEach((vote) => {
     const votedAnswer = answersById.get(vote.answer_id);
     if (!votedAnswer) return;
+    const isTruthEquivalent = votedAnswer.is_correct || truthAnswerKeys.has(normalize(votedAnswer.answer_text));
 
-    if (votedAnswer.is_correct) {
+    if (isTruthEquivalent) {
       scores.push({
         player_id: vote.voter_id,
         points_earned: GAME_CONFIG.POINTS.CORRECT_ANSWER * multiplier,
@@ -64,7 +71,7 @@ export function calculateRoundScores(
 
   answers.forEach((answer) => {
     const votesForAnswer = votesByAnswer.get(answer.id) || [];
-    if (answer.is_correct || !answer.player_id) return;
+    if (answer.is_correct || !answer.player_id || truthAnswerKeys.has(normalize(answer.answer_text))) return;
 
     // Fake answer owner gains points for each fooled player
     const points = (votesForAnswer.length * GAME_CONFIG.POINTS.PER_FOOLED_PLAYER) * multiplier;
@@ -104,9 +111,15 @@ export function getFooledRelationships(
   votes: Vote[]
 ): { fooler_id: string; fooled_ids: string[] }[] {
   const relationships: Map<string, Set<string>> = new Map();
+  const normalize = (value: string) => value.trim().toLocaleLowerCase();
+  const truthAnswerKeys = new Set(
+    answers
+      .filter((answer) => !!answer.is_correct)
+      .map((answer) => normalize(answer.answer_text))
+  );
 
   answers
-    .filter((a) => !a.is_correct && a.player_id !== null)
+    .filter((a) => !a.is_correct && a.player_id !== null && !truthAnswerKeys.has(normalize(a.answer_text)))
     .forEach((answer) => {
       const fooledBy = votes
         .filter((v) => v.answer_id === answer.id)

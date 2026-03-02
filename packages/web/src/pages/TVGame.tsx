@@ -325,6 +325,8 @@ export const TVGame: React.FC = () => {
   const [currentRevealIndex, setCurrentRevealIndex] = useState(0);
   const [revealComplete, setRevealComplete] = useState(false);
   const [categoryWaitSecondsLeft, setCategoryWaitSecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
+  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const warningBeepSecondRef = useRef<number | null>(null);
   const revealForRoundIdRef = useRef<string | null>(null); // Track which round reveal is for
@@ -345,16 +347,32 @@ export const TVGame: React.FC = () => {
       isStageStartRound(displayRoundNumber)
     );
 
+  const votingAnswers = useMemo(() => {
+    const truthKeys = new Set(
+      allAnswers
+        .filter((answer) => !!answer.is_correct)
+        .map((answer) => normalizeAnswerKey(answer.answer_text))
+    );
+
+    if (truthKeys.size === 0) {
+      return allAnswers;
+    }
+
+    return allAnswers.filter((answer) => (
+      answer.is_correct || !truthKeys.has(normalizeAnswerKey(answer.answer_text))
+    ));
+  }, [allAnswers]);
+
   const combinedAnswers = useMemo(() => {
     const grouped = new Map<string, { id: string; answer_text: string }>();
-    for (const answer of allAnswers) {
+    for (const answer of votingAnswers) {
       const key = getAnswerGroupKey(answer.answer_text, !!answer.is_correct);
       if (!grouped.has(key)) {
         grouped.set(key, { id: answer.id, answer_text: answer.answer_text });
       }
     }
     return Array.from(grouped.values());
-  }, [allAnswers]);
+  }, [votingAnswers]);
 
   const recoverRoundState = useCallback(async () => {
     if (!game || game.status !== 'playing' || isRecovering) return;
@@ -584,6 +602,64 @@ export const TVGame: React.FC = () => {
     return () => clearInterval(interval);
   }, [isAwaitingStageCategorySelection, game?.id, game?.current_round]);
 
+  // Keep TV synced with the exact category options shown to captain.
+  useEffect(() => {
+    if (!game || !shouldShowCategorySelectionWait) {
+      setCategoryOptions([]);
+      setSelectedCategory(null);
+      return;
+    }
+
+    let isCancelled = false;
+
+    const syncCategoryPrompt = async () => {
+      try {
+        const { getSupabase } = await import('@fakash/shared');
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+          .from('game_category_prompts')
+          .select('options, selected_category')
+          .eq('game_id', game.id)
+          .eq('round_number', displayRoundNumber)
+          .maybeSingle();
+
+        if (error && error.code !== '42P01' && error.code !== 'PGRST116') {
+          console.warn('Failed to sync TV category prompt:', error);
+          return;
+        }
+
+        if (isCancelled) return;
+
+        const rawOptions = (data as any)?.options;
+        const normalizedOptions = Array.isArray(rawOptions)
+          ? rawOptions
+              .filter((option): option is string => typeof option === 'string' && option.trim().length > 0)
+              .slice(0, 4)
+          : [];
+
+        const normalizedSelectedCategory =
+          typeof (data as any)?.selected_category === 'string' && (data as any).selected_category.trim().length > 0
+            ? (data as any).selected_category
+            : null;
+
+        setCategoryOptions(normalizedOptions);
+        setSelectedCategory(normalizedSelectedCategory);
+      } catch (err) {
+        if (!isCancelled) {
+          console.warn('Failed to sync TV category prompt:', err);
+        }
+      }
+    };
+
+    syncCategoryPrompt();
+    const interval = setInterval(syncCategoryPrompt, 1000);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, [game, shouldShowCategorySelectionWait, displayRoundNumber]);
+
   if (!game || !isDisplayMode) {
     return null;
   }
@@ -593,12 +669,33 @@ export const TVGame: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-primary">
         <ParticleBackground />
-        <div className="relative z-10 text-center glass rounded-3xl px-10 py-8 border border-white/20">
+        <div className="relative z-10 w-full max-w-6xl mx-auto text-center glass rounded-3xl px-10 py-8 border border-white/20">
           <p className="text-xl text-white/70 mb-2">
             الجولة {displayRoundNumber} / {game.round_count}
           </p>
           <p className="text-4xl font-bold mb-3">القائد يختار فئة السؤال</p>
           <p className="text-2xl text-white/70">الوقت المتبقي: {categoryWaitSecondsLeft} ثانية</p>
+          {categoryOptions.length > 0 ? (
+            <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl mx-auto">
+              {categoryOptions.map((category) => {
+                const isSelected = selectedCategory === category;
+                return (
+                  <div
+                    key={category}
+                    className={`rounded-2xl px-6 py-5 border text-2xl font-bold transition-all ${
+                      isSelected
+                        ? 'border-green-300 bg-green-500/20 text-white'
+                        : 'border-white/20 bg-white/10 text-white/90'
+                    }`}
+                  >
+                    {category}
+                  </div>
+                );
+              })}
+            </div>
+          ) : (
+            <p className="text-lg text-white/60 mt-6">جاري تجهيز الفئات المتاحة...</p>
+          )}
         </div>
       </div>
     );
