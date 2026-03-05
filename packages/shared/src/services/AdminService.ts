@@ -1,5 +1,6 @@
 import { getSupabase } from './supabase';
 import type { Question, QuestionLie } from '../types';
+import type { GameAudioCueKey } from '../constants/audioCues';
 
 export interface AdminUser {
   id: string;
@@ -28,6 +29,18 @@ export interface QuestionFilters {
   category?: string;
   difficulty?: 'easy' | 'medium' | 'hard';
   language?: 'ar' | 'en';
+}
+
+export interface GameAudioCue {
+  id: string;
+  cue_key: GameAudioCueKey;
+  label: string;
+  audio_url: string | null;
+  duration_ms: number | null;
+  is_active: boolean;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 export const AdminService = {
@@ -447,6 +460,115 @@ export const AdminService = {
 
     if (error) {
       console.error('Failed to update user display name:', error);
+      throw error;
+    }
+  },
+
+  // ==================== TV AUDIO CUES MANAGEMENT ====================
+
+  /**
+   * Get all configured TV audio cues.
+   */
+  async getGameAudioCues(): Promise<GameAudioCue[]> {
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('game_audio_cues')
+      .select('*')
+      .order('cue_key', { ascending: true });
+
+    if (error) {
+      console.error('Failed to fetch game audio cues:', error);
+      throw error;
+    }
+
+    return (data || []) as GameAudioCue[];
+  },
+
+  /**
+   * Upload audio file to storage and return a public URL.
+   */
+  async uploadGameAudioFile(file: File, cueKey: GameAudioCueKey): Promise<string> {
+    const supabase = getSupabase();
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+    const path = `${cueKey}/${Date.now()}-${safeName}`;
+
+    const { error: uploadError } = await supabase
+      .storage
+      .from('game-audio-cues')
+      .upload(path, file, {
+        upsert: false,
+        cacheControl: '3600',
+        contentType: file.type || 'audio/mpeg',
+      });
+
+    if (uploadError) {
+      console.error('Failed to upload game audio file:', uploadError);
+      throw uploadError;
+    }
+
+    const { data } = supabase.storage.from('game-audio-cues').getPublicUrl(path);
+    if (!data?.publicUrl) {
+      throw new Error('Failed to get public URL for uploaded audio');
+    }
+
+    return data.publicUrl;
+  },
+
+  /**
+   * Create/update a single cue configuration row.
+   */
+  async upsertGameAudioCue(input: {
+    cue_key: GameAudioCueKey;
+    label: string;
+    audio_url: string | null;
+    duration_ms?: number | null;
+    is_active?: boolean;
+  }): Promise<GameAudioCue> {
+    const supabase = getSupabase();
+    const { data: authData } = await supabase.auth.getUser();
+    const updatedBy = authData.user?.id || null;
+
+    const { data, error } = await supabase
+      .from('game_audio_cues')
+      .upsert({
+        cue_key: input.cue_key,
+        label: input.label,
+        audio_url: input.audio_url,
+        duration_ms: input.duration_ms ?? null,
+        is_active: input.is_active ?? true,
+        updated_by: updatedBy,
+      }, { onConflict: 'cue_key' })
+      .select()
+      .single();
+
+    if (error) {
+      console.error('Failed to upsert game audio cue:', error);
+      throw error;
+    }
+
+    return data as GameAudioCue;
+  },
+
+  /**
+   * Remove assigned audio for a cue key (keeps cue row).
+   */
+  async clearGameAudioCue(cueKey: GameAudioCueKey): Promise<void> {
+    const supabase = getSupabase();
+    const { data: authData } = await supabase.auth.getUser();
+    const updatedBy = authData.user?.id || null;
+
+    const { error } = await supabase
+      .from('game_audio_cues')
+      .update({
+        audio_url: null,
+        duration_ms: null,
+        updated_by: updatedBy,
+      })
+      .eq('cue_key', cueKey);
+
+    if (error) {
+      console.error('Failed to clear game audio cue:', error);
       throw error;
     }
   },

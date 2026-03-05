@@ -3,7 +3,15 @@ import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Logo } from '../components/Logo';
 import { EndRoomButton } from '../components/EndRoomButton';
-import { useGameStore, useRoundStore, RoundService, getRoundMultiplier, GAME_CONFIG } from '@fakash/shared';
+import {
+  useGameStore,
+  useRoundStore,
+  RoundService,
+  getRoundMultiplier,
+  GAME_CONFIG,
+  GAME_AUDIO_CUE_DEFINITIONS,
+  type GameAudioCueKey,
+} from '@fakash/shared';
 import {
   QuestionReveal,
   AnimatedCard,
@@ -147,6 +155,12 @@ interface RevealAnswer {
   authorName: string | null;
   voters: Array<{ id: string; name: string }>;
   voteCount: number;
+}
+
+interface TvAudioCueRow {
+  cue_key: GameAudioCueKey;
+  audio_url: string | null;
+  is_active: boolean;
 }
 
 function normalizeAnswerKey(value: string): string {
@@ -327,9 +341,15 @@ export const TVGame: React.FC = () => {
   const [categoryWaitSecondsLeft, setCategoryWaitSecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
   const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [audioCuesByKey, setAudioCuesByKey] = useState<Record<string, TvAudioCueRow>>({});
+  const [audioBlocked, setAudioBlocked] = useState(false);
+  const [audioEnabled, setAudioEnabled] = useState(true);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const warningBeepSecondRef = useRef<number | null>(null);
   const revealForRoundIdRef = useRef<string | null>(null); // Track which round reveal is for
+  const tvNarrationAudioRef = useRef<HTMLAudioElement | null>(null);
+  const previousPhaseKeyRef = useRef<string | null>(null);
+  const categoryPromptPlayedRef = useRef<boolean>(false);
   const confetti = useConfetti();
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
   const displayRoundNumber = Math.max(game?.current_round ?? 0, 1);
@@ -373,6 +393,33 @@ export const TVGame: React.FC = () => {
     }
     return Array.from(grouped.values());
   }, [votingAnswers]);
+
+  const playTvCue = useCallback(async (cueKey: GameAudioCueKey) => {
+    if (!audioEnabled) return;
+    const cue = audioCuesByKey[cueKey];
+    if (!cue || !cue.is_active || !cue.audio_url) return;
+
+    try {
+      if (tvNarrationAudioRef.current) {
+        tvNarrationAudioRef.current.pause();
+      }
+
+      const audio = new Audio(cue.audio_url);
+      audio.preload = 'auto';
+      tvNarrationAudioRef.current = audio;
+      await audio.play();
+      setAudioBlocked(false);
+    } catch (err) {
+      console.warn(`TV cue "${cueKey}" could not autoplay:`, err);
+      setAudioBlocked(true);
+    }
+  }, [audioCuesByKey, audioEnabled]);
+
+  const enableTvAudio = useCallback(async () => {
+    setAudioEnabled(true);
+    setAudioBlocked(false);
+    await playTvCue('answering_start');
+  }, [playTvCue]);
 
   const recoverRoundState = useCallback(async () => {
     if (!game || game.status !== 'playing' || isRecovering) return;
@@ -429,6 +476,49 @@ export const TVGame: React.FC = () => {
       setIsRecovering(false);
     }
   }, [game, isRecovering]);
+
+  // Load TV narration cue config (admin-managed).
+  useEffect(() => {
+    let isCancelled = false;
+
+    const loadAudioCues = async () => {
+      try {
+        const { getSupabase } = await import('@fakash/shared');
+        const supabase = getSupabase();
+        const cueKeys = GAME_AUDIO_CUE_DEFINITIONS.map((cue) => cue.key);
+
+        const { data, error } = await supabase
+          .from('game_audio_cues')
+          .select('cue_key, audio_url, is_active')
+          .in('cue_key', cueKeys);
+
+        if (error && error.code !== '42P01') {
+          console.warn('Failed to fetch TV audio cues:', error);
+          return;
+        }
+
+        if (isCancelled) return;
+
+        const mapped: Record<string, TvAudioCueRow> = {};
+        for (const row of (data || []) as TvAudioCueRow[]) {
+          mapped[row.cue_key] = row;
+        }
+        setAudioCuesByKey(mapped);
+      } catch (err) {
+        if (!isCancelled) {
+          console.warn('Failed to fetch TV audio cues:', err);
+        }
+      }
+    };
+
+    loadAudioCues();
+    const interval = setInterval(loadAudioCues, 15000);
+
+    return () => {
+      isCancelled = true;
+      clearInterval(interval);
+    };
+  }, []);
 
   // Fetch reveal data when round completes
   useEffect(() => {
@@ -602,6 +692,61 @@ export const TVGame: React.FC = () => {
     return () => clearInterval(interval);
   }, [isAwaitingStageCategorySelection, game?.id, game?.current_round]);
 
+  // Narration cue for category selection prompt.
+  useEffect(() => {
+    if (shouldShowCategorySelectionWait && !categoryPromptPlayedRef.current) {
+      categoryPromptPlayedRef.current = true;
+      playTvCue('category_selection_start');
+      return;
+    }
+
+    if (!shouldShowCategorySelectionWait) {
+      categoryPromptPlayedRef.current = false;
+    }
+  }, [shouldShowCategorySelectionWait, playTvCue]);
+
+  // Narration cue for major TV phase transitions.
+  useEffect(() => {
+    if (!game || !currentRound) {
+      previousPhaseKeyRef.current = null;
+      return;
+    }
+
+    const phaseKey = `${currentRound.id}:${roundStatus}`;
+    if (previousPhaseKeyRef.current === phaseKey) return;
+    previousPhaseKeyRef.current = phaseKey;
+
+    if (roundStatus === 'answering') {
+      const multiplier = getRoundMultiplier(currentRound.round_number, game.round_count);
+      if (multiplier === 3) {
+        playTvCue('triple_points_round_start');
+      } else if (multiplier === 2) {
+        playTvCue('double_points_round_start');
+      } else {
+        playTvCue('answering_start');
+      }
+      return;
+    }
+
+    if (roundStatus === 'voting') {
+      playTvCue('voting_start');
+      return;
+    }
+
+    if (roundStatus === 'completed') {
+      playTvCue('reveal_start');
+    }
+  }, [game, currentRound, roundStatus, playTvCue]);
+
+  // Stop narration audio when component unmounts.
+  useEffect(() => {
+    return () => {
+      if (tvNarrationAudioRef.current) {
+        tvNarrationAudioRef.current.pause();
+      }
+    };
+  }, []);
+
   // Keep TV synced with the exact category options shown to captain.
   useEffect(() => {
     if (!game || !shouldShowCategorySelectionWait) {
@@ -664,11 +809,23 @@ export const TVGame: React.FC = () => {
     return null;
   }
 
+  const audioUnlockOverlay = audioBlocked ? (
+    <div className="absolute top-6 left-6 z-50">
+      <button
+        onClick={enableTvAudio}
+        className="px-4 py-2 rounded-xl bg-black/60 border border-white/20 text-white text-sm font-bold hover:bg-black/70 transition-colors"
+      >
+        تفعيل الصوت
+      </button>
+    </div>
+  ) : null;
+
   // Category selection waiting state (stage starts: rounds 1, 4, 7)
   if (game && shouldShowCategorySelectionWait) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-primary">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-primary relative">
         <ParticleBackground />
+        {audioUnlockOverlay}
         <div className="relative z-10 w-full max-w-6xl mx-auto text-center glass rounded-3xl px-10 py-8 border border-white/20">
           <p className="text-xl text-white/70 mb-2">
             الجولة {displayRoundNumber} / {game.round_count}
@@ -704,8 +861,9 @@ export const TVGame: React.FC = () => {
   // Loading state
   if (!currentRound || !question) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-primary">
+      <div className="min-h-screen flex items-center justify-center bg-gradient-primary relative">
         <ParticleBackground />
+        {audioUnlockOverlay}
         <div className="relative z-10 text-center">
           <motion.div
             animate={{ rotate: 360 }}
@@ -725,6 +883,7 @@ export const TVGame: React.FC = () => {
   return (
     <div className="min-h-screen relative overflow-hidden bg-gradient-primary">
       <ParticleBackground phase={roundStatus} />
+      {audioUnlockOverlay}
 
       {showConfetti && <ConfettiTrigger type="celebration" />}
 
