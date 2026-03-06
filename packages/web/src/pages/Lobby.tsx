@@ -60,8 +60,19 @@ export const Lobby: React.FC = () => {
 
 
 
-  if (isDisplayMode || !game || !currentPlayer) {
+  if (isDisplayMode) {
     return null;
+  }
+
+  if (!game || !currentPlayer) {
+    return (
+      <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
+        <div className="text-center">
+          <p className="text-white/70">جارٍ استعادة الجلسة...</p>
+          <p className="text-xs text-white/40 mt-2">إذا استمر هذا، سيتم إعادتك تلقائيا.</p>
+        </div>
+      </div>
+    );
   }
 
   const controllerPlayerId = game.host_id ?? game.phase_captain_id ?? players[0]?.id ?? null;

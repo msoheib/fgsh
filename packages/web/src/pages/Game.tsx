@@ -742,7 +742,7 @@ export const Game: React.FC = () => {
     }
   };
 
-  const flushPendingVote = useCallback(async () => {
+  const flushPendingVote = async () => {
     if (!currentPlayer || voteSubmitInFlightRef.current) {
       return;
     }
@@ -771,7 +771,7 @@ export const Game: React.FC = () => {
 
       voteSubmitInFlightRef.current = false;
     }
-  }, [currentPlayer, submitVote]);
+  };
 
   const handleSubmitVote = async (answerId: string) => {
     if (!isVotingOpen || !currentPlayer) return;
