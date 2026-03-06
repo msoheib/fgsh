@@ -8,7 +8,7 @@
 -- ============================================================================
 
 CREATE TABLE IF NOT EXISTS question_lies (
-  id UUID DEFAULT uuid_generate_v4() PRIMARY KEY,
+  id UUID DEFAULT gen_random_uuid() PRIMARY KEY,
   question_id UUID NOT NULL REFERENCES questions(id) ON DELETE CASCADE,
   lie_text TEXT NOT NULL,
   source VARCHAR(20) NOT NULL DEFAULT 'ai'

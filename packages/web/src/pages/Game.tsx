@@ -202,24 +202,16 @@ export const Game: React.FC = () => {
   }, [votingAnswers]);
 
   const finishCategorySelection = useCallback((selectedCategory: string | null) => {
-    if (game) {
+    if (game && currentPlayer) {
       (async () => {
         try {
-          const { getSupabase } = await import('@fakash/shared');
-          const supabase = getSupabase();
+          const { GameService } = await import('@fakash/shared');
           const roundNumber = categoryPrompt?.roundNumber || game.current_round;
           if (!roundNumber || !selectedCategory) return;
 
-          await supabase
-            .from('game_category_prompts')
-            .upsert(
-              {
-                game_id: game.id,
-                round_number: roundNumber,
-                selected_category: selectedCategory,
-              },
-              { onConflict: 'game_id,round_number' }
-            );
+          await GameService.saveCategoryPrompt(game.id, roundNumber, currentPlayer.id, {
+            selectedCategory,
+          });
         } catch (err) {
           console.warn('Failed to persist selected category:', err);
         }
@@ -232,10 +224,10 @@ export const Game: React.FC = () => {
     if (resolver) {
       resolver(selectedCategory);
     }
-  }, [categoryPrompt?.roundNumber, game]);
+  }, [categoryPrompt?.roundNumber, currentPlayer, game]);
 
   const requestCategorySelection = useCallback(async (roundNumber: number): Promise<string | null> => {
-    if (!game) return null;
+    if (!game || !currentPlayer) return null;
 
     const { getSupabase } = await import('@fakash/shared');
     const supabase = getSupabase();
@@ -285,20 +277,16 @@ export const Game: React.FC = () => {
 
       options = pickRandomItems(allCategories, 4);
 
-      const savePrompt = await supabase
-        .from('game_category_prompts')
-        .upsert(
-          {
-            game_id: game.id,
-            round_number: roundNumber,
-            options,
-            selected_category: null,
-          },
-          { onConflict: 'game_id,round_number' }
-        );
-
-      if (savePrompt.error && savePrompt.error.code !== '42P01') {
-        console.warn('Failed to persist category prompt:', savePrompt.error);
+      try {
+        const { GameService } = await import('@fakash/shared');
+        await GameService.saveCategoryPrompt(game.id, roundNumber, currentPlayer.id, {
+          options,
+          selectedCategory: null,
+        });
+      } catch (savePromptError: any) {
+        if (savePromptError?.code !== '42P01') {
+          console.warn('Failed to persist category prompt:', savePromptError);
+        }
       }
     }
 
@@ -308,7 +296,7 @@ export const Game: React.FC = () => {
       setCategoryPrompt({ roundNumber, options });
       setCategorySecondsLeft(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
     });
-  }, [game]);
+  }, [currentPlayer, game]);
 
   const getCategoryForRound = useCallback(async (roundNumber: number): Promise<string | null> => {
     if (!game) return null;
@@ -540,7 +528,7 @@ export const Game: React.FC = () => {
 
   // Handle timer expiration - call server-side force_advance_round
   useEffect(() => {
-    if (!currentRound || !canControlFlow || timeRemaining !== 0) return;
+    if (!currentRound || !currentPlayer || !canControlFlow || timeRemaining !== 0) return;
     if (roundStatus !== 'answering' && roundStatus !== 'voting') return;
 
     // Guard: only allow force-advance if the timer was actively initialized
@@ -555,19 +543,9 @@ export const Game: React.FC = () => {
     const handleTimerExpired = async () => {
       console.log('⏰ Timer expired! Calling server-side force_advance_round...');
       try {
-        const { getSupabase } = await import('@fakash/shared');
-        const supabase = getSupabase();
-        
-        const { error } = await supabase.rpc('force_advance_round', {
-          p_round_id: currentRound.id
-        });
-        
-        if (error) {
-          console.error('Failed to force advance round:', error);
-          forceAdvanceKeyRef.current = null;
-        } else {
-          console.log('Server processing timer expiration');
-        }
+        const { GameService } = await import('@fakash/shared');
+        await GameService.forceAdvanceRound(currentRound.id, currentPlayer.id);
+        console.log('Server processing timer expiration');
       } catch (err) {
         console.error('Error calling force_advance_round:', err);
         forceAdvanceKeyRef.current = null;
@@ -577,7 +555,7 @@ export const Game: React.FC = () => {
     // Small delay to prevent multiple rapid calls
     const timer = setTimeout(handleTimerExpired, 500);
     return () => clearTimeout(timer);
-  }, [currentRound?.id, timeRemaining, roundStatus, canControlFlow]);
+  }, [currentPlayer?.id, currentRound?.id, timeRemaining, roundStatus, canControlFlow]);
 
   // Clear force-advance guard when a new timer starts or round changes.
   useEffect(() => {

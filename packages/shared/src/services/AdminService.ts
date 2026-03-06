@@ -419,14 +419,14 @@ export const AdminService = {
   async banUser(userId: string): Promise<void> {
     const supabase = getSupabase();
     
-    const { error } = await supabase
-      .from('host_profiles')
-      .update({ is_banned: true })
-      .eq('id', userId);
+    const { data, error } = await supabase.rpc('admin_set_host_ban', {
+      p_target_host_id: userId,
+      p_is_banned: true,
+    });
 
-    if (error) {
+    if (error || data !== true) {
       console.error('Failed to ban user:', error);
-      throw error;
+      throw error || new Error('Failed to ban user');
     }
   },
 
@@ -436,14 +436,14 @@ export const AdminService = {
   async unbanUser(userId: string): Promise<void> {
     const supabase = getSupabase();
     
-    const { error } = await supabase
-      .from('host_profiles')
-      .update({ is_banned: false })
-      .eq('id', userId);
+    const { data, error } = await supabase.rpc('admin_set_host_ban', {
+      p_target_host_id: userId,
+      p_is_banned: false,
+    });
 
-    if (error) {
+    if (error || data !== true) {
       console.error('Failed to unban user:', error);
-      throw error;
+      throw error || new Error('Failed to unban user');
     }
   },
 
@@ -453,14 +453,14 @@ export const AdminService = {
   async updateUserDisplayName(userId: string, displayName: string): Promise<void> {
     const supabase = getSupabase();
     
-    const { error } = await supabase
-      .from('host_profiles')
-      .update({ display_name: displayName })
-      .eq('id', userId);
+    const { data, error } = await supabase.rpc('admin_update_host_display_name', {
+      p_target_host_id: userId,
+      p_display_name: displayName,
+    });
 
-    if (error) {
+    if (error || data !== true) {
       console.error('Failed to update user display name:', error);
-      throw error;
+      throw error || new Error('Failed to update user display name');
     }
   },
 

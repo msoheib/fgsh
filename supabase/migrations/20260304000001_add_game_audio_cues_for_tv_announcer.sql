@@ -5,7 +5,7 @@
 -- 3) Player screens are unaffected.
 
 CREATE TABLE IF NOT EXISTS public.game_audio_cues (
-  id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   cue_key TEXT NOT NULL UNIQUE,
   label TEXT NOT NULL,
   audio_url TEXT NULL,
@@ -174,4 +174,3 @@ USING (
       AND hp.is_approved = TRUE
   )
 );
-

@@ -167,7 +167,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     set({ isLoading: true, error: null });
     try {
-      const { game, player } = await GameService.createGame(hostName, settings);
+      const { game, player, playerToken } = await GameService.createGame(hostName, settings);
 
       set({
         game,
@@ -454,6 +454,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         gameId: game.id,
         gameCode: game.code,
         playerId: player.id,
+        playerToken,
         playerName: player.user_name,
         isPhaseCaptain: true,
         joinedAt: Date.now(),
@@ -693,15 +694,10 @@ export const useGameStore = create<GameState>((set, get) => ({
   joinGame: async (code: string, playerName: string) => {
     // Disconnect from old game if player was in one
     const oldSession = getGameSession();
-    if (oldSession && oldSession.playerId) {
+    if (oldSession && oldSession.playerId && oldSession.playerToken && oldSession.gameId) {
       try {
-        if (oldSession.gameId) {
-          await GameService.leaveGameAsPlayer(oldSession.gameId, oldSession.playerId);
-          console.log('🔌 Left old game with failover before joining new one');
-        } else {
-          await GameService.updatePlayerStatus(oldSession.playerId, 'disconnected');
-          console.log('🔌 Disconnected from old game before joining new one');
-        }
+        await GameService.leaveGameAsPlayer(oldSession.gameId, oldSession.playerId);
+        console.log('🔌 Left old game with failover before joining new one');
       } catch (err) {
         console.error('Failed to disconnect from old game:', err);
       }
@@ -712,7 +708,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
     set({ isLoading: true, error: null });
     try {
-      const { game, player } = await GameService.joinGame(code, playerName);
+      const { game, player, playerToken } = await GameService.joinGame(code, playerName);
 
       // Get all players
       const players = await GameService.getGamePlayers(game.id);
@@ -1059,6 +1055,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         gameId: game.id,
         gameCode: game.code,
         playerId: player.id,
+        playerToken,
         playerName: player.user_name,
         isPhaseCaptain,
         joinedAt: Date.now(),
@@ -1082,6 +1079,13 @@ export const useGameStore = create<GameState>((set, get) => ({
     if (!session) {
       console.log('[rehydrate] No saved session found');
       set({ rehydrationAttempted: true });
+      return false;
+    }
+
+    if (!session.isDisplayMode && (!session.playerId || !session.playerToken)) {
+      console.log('[rehydrate] Player session token missing; clearing stale session');
+      clearGameSession();
+      set({ rehydrationAttempted: true, isLoading: false });
       return false;
     }
 
@@ -1152,7 +1156,7 @@ export const useGameStore = create<GameState>((set, get) => ({
     try {
       console.log('[rehydrate] Found saved session:', session);
 
-      const game = await GameService.getGame(session.gameId);
+      let game = await GameService.getGame(session.gameId);
       if (!game) {
         console.log('[rehydrate] Game no longer exists');
         clearGameSession();
@@ -1167,7 +1171,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         return false;
       }
 
-      const players = await GameService.getGamePlayers(game.id);
+      let players = await GameService.getGamePlayers(game.id);
       const isDisplaySession = session.isDisplayMode || !session.playerId;
 
       if (isDisplaySession) {
@@ -1334,7 +1338,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         return true;
       }
 
-      const currentPlayer = players.find((p) => p.id === session.playerId);
+      let currentPlayer = players.find((p) => p.id === session.playerId);
 
       if (!currentPlayer) {
         console.log('[rehydrate] Player in session is no longer in this game');
@@ -1344,10 +1348,16 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       if (currentPlayer.connection_status === 'disconnected') {
-        console.log('[rehydrate] Marking disconnected player as connected again');
+        console.log('[rehydrate] Reconnecting secure player session');
         try {
-          await GameService.updatePlayerStatus(currentPlayer.id, 'connected');
-          currentPlayer.connection_status = 'connected';
+          const reconnectResult = await GameService.reconnectPlayerSession(game.id, currentPlayer.id);
+          currentPlayer = reconnectResult.player;
+          players = players.map((player) => (
+            player.id === currentPlayer!.id ? currentPlayer! : player
+          ));
+          if (reconnectResult.phaseCaptainId) {
+            game = { ...game, phase_captain_id: reconnectResult.phaseCaptainId };
+          }
         } catch (err) {
           console.error('[rehydrate] Failed to reconnect player:', err);
           clearGameSession();
@@ -1614,21 +1624,12 @@ export const useGameStore = create<GameState>((set, get) => ({
 
   // Start game (host only)
   startGame: async () => {
-    const { game, currentPlayer, isDisplayMode } = get();
-    if (!game) return;
-
-    // Display mode can start without a player
-    if (!isDisplayMode && !currentPlayer) return;
+    const { game, currentPlayer } = get();
+    if (!game || !currentPlayer) return;
 
     set({ isLoading: true, error: null });
     try {
-      if (isDisplayMode) {
-        // Display mode: start without player verification
-        await GameService.startGameFromDisplay(game.id);
-      } else {
-        // Normal mode: verify player is host
-        await GameService.startGame(game.id, currentPlayer!.id);
-      }
+      await GameService.startGame(game.id, currentPlayer.id);
       set({ isLoading: false });
     } catch (error: any) {
       set({ error: error.message, isLoading: false });
@@ -1650,12 +1651,10 @@ export const useGameStore = create<GameState>((set, get) => ({
     const playerId = currentPlayer?.id || null;
     const wasDisplayMode = isDisplayMode;
 
-    // Clear local state immediately so user is fully out of the room.
-    clearGameSession();
-    get().reset();
-
     // Display mode leaving: end the game for everyone
     if (wasDisplayMode) {
+      clearGameSession();
+      get().reset();
       try {
         console.log('🔚 Display leaving - ending game for all players');
         await GameService.endGame(gameId);
@@ -1672,11 +1671,11 @@ export const useGameStore = create<GameState>((set, get) => ({
         console.log('👋 Leave result:', leaveResult);
       } catch (err) {
         console.error('Failed to leave game with failover:', err);
-        GameService.updatePlayerStatus(playerId, 'disconnected').catch(updateErr => {
-          console.error('Fallback disconnect failed:', updateErr);
-        });
       }
     }
+
+    clearGameSession();
+    get().reset();
   },
 
   // Set all players
@@ -1726,10 +1725,17 @@ export const useGameStore = create<GameState>((set, get) => ({
       // Use atomic RPC function to prevent race conditions
       const { getSupabase } = await import('../services/supabase');
       const supabase = getSupabase();
+      const session = getGameSession();
+      if (!currentPlayer || session?.playerId !== currentPlayer.id || !session.playerToken) {
+        console.warn('Cannot promote captain without a valid secure player session');
+        return;
+      }
 
       const { data, error } = await supabase.rpc('promote_phase_captain', {
         p_game_id: game.id,
-        p_disconnected_player_id: disconnectedPlayerId
+        p_disconnected_player_id: disconnectedPlayerId,
+        p_player_id: currentPlayer.id,
+        p_player_token: session.playerToken,
       });
 
       if (error) {

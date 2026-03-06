@@ -1,4 +1,4 @@
-﻿-- Migration: Refine lie penalties and prevent duplicate truth options
+-- Migration: Refine lie penalties and prevent duplicate truth options
 -- Changes:
 -- 1) Voter penalties apply only when falling for SYSTEM lies (player_id IS NULL)
 -- 2) Falling for PLAYER lies gives 0 penalty to voter

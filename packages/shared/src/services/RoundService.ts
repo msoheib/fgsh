@@ -8,9 +8,34 @@ import {
   ErrorType,
 } from '../types';
 import { validateAnswer, sanitizeText } from '../utils/validation';
-import { GAME_CONFIG } from '../constants/game';
+import { getGameSession } from '../utils/sessionStorage';
 
 export class RoundService {
+  private static getPlayerSession(playerId?: string, gameId?: string): {
+    gameId: string;
+    playerId: string;
+    playerToken: string;
+  } {
+    const session = getGameSession();
+    if (!session?.playerId || !session.playerToken) {
+      throw new GameError(ErrorType.UNAUTHORIZED, 'Player session expired');
+    }
+
+    if (playerId && session.playerId !== playerId) {
+      throw new GameError(ErrorType.UNAUTHORIZED, 'Player session mismatch');
+    }
+
+    if (gameId && session.gameId !== gameId) {
+      throw new GameError(ErrorType.UNAUTHORIZED, 'Game session mismatch');
+    }
+
+    return {
+      gameId: session.gameId,
+      playerId: session.playerId,
+      playerToken: session.playerToken,
+    };
+  }
+
   private static normalizeAnswerKey(value: string): string {
     return value.trim().toLocaleLowerCase();
   }
@@ -44,109 +69,38 @@ export class RoundService {
       return { round: existingRound, question: existingRound.question! };
     }
 
-    // Get a random question that hasn't been used in this game
-    const { data: usedQuestionIds } = await supabase
+    const session = this.getPlayerSession(undefined, gameId);
+    const { data: createdRoundData, error: roundError } = await supabase.rpc('create_round_as_player', {
+      p_game_id: gameId,
+      p_round_number: roundNumber,
+      p_player_id: session.playerId,
+      p_player_token: session.playerToken,
+      p_language: language,
+      p_category: category ?? null,
+    });
+
+    if (roundError) {
+      throw new GameError(ErrorType.CONNECTION_LOST, roundError.message);
+    }
+
+    const createdRound = Array.isArray(createdRoundData) ? createdRoundData[0] : createdRoundData;
+    const roundId = createdRound?.round_id;
+
+    if (!roundId) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to create round');
+    }
+
+    const { data: roundWithQuestion, error: fetchRoundError } = await supabase
       .from('game_rounds')
-      .select('question_id')
-      .eq('game_id', gameId);
-
-    const usedIds = usedQuestionIds?.map((r) => r.question_id) || [];
-
-    // Get random unused question (filtered by selected category when provided)
-    let questionQuery = supabase
-      .from('questions')
-      .select('*')
-      .eq('language', language)
-      .not('id', 'in', `(${usedIds.length > 0 ? usedIds.join(',') : '00000000-0000-0000-0000-000000000000'})`)
-      .limit(30);
-
-    if (category) {
-      questionQuery = questionQuery.eq('category', category);
-    }
-
-    let { data: questions, error: questionError } = await questionQuery;
-
-    // Graceful fallback:
-    // 1) Keep selected category even if we must reuse a previous question.
-    // 2) Only then fall back to any category.
-    if ((!questions || questions.length === 0) && category) {
-      const sameCategoryReuse = await supabase
-        .from('questions')
-        .select('*')
-        .eq('language', language)
-        .eq('category', category)
-        .limit(30);
-
-      questions = sameCategoryReuse.data;
-      questionError = sameCategoryReuse.error;
-    }
-
-    if ((!questions || questions.length === 0) && category) {
-      const fallbackAnyCategory = await supabase
-        .from('questions')
-        .select('*')
-        .eq('language', language)
-        .not('id', 'in', `(${usedIds.length > 0 ? usedIds.join(',') : '00000000-0000-0000-0000-000000000000'})`)
-        .limit(30);
-
-      questions = fallbackAnyCategory.data;
-      questionError = fallbackAnyCategory.error;
-    }
-
-    if (questionError || !questions || questions.length === 0) {
-      throw new GameError(ErrorType.CONNECTION_LOST, 'No questions available');
-    }
-
-    const question = questions[Math.floor(Math.random() * questions.length)];
-
-    // Count connected players to establish fixed quorum for this round
-    const { count: playerCount, error: countError } = await supabase
-      .from('players')
-      .select('*', { count: 'exact', head: true })
-      .eq('game_id', gameId)
-      .eq('connection_status', 'connected');
-
-    if (countError) {
-      throw new GameError(ErrorType.CONNECTION_LOST, countError.message);
-    }
-
-    const requiredPlayers = Math.max(playerCount || 2, 2); // Minimum 2 players
-
-    // Create round - use server time by omitting timer_starts_at (database DEFAULT NOW())
-    const { data: round, error: roundError } = await supabase
-      .from('game_rounds')
-      .insert({
-        game_id: gameId,
-        round_number: roundNumber,
-        question_id: question.id,
-        status: 'answering',
-        required_players: requiredPlayers, // Fixed quorum for this round
-        // timer_starts_at will use database DEFAULT NOW() for server time
-        timer_duration: GAME_CONFIG.ANSWER_TIMER,
-      })
-      .select()
+      .select('*, question:questions(*)')
+      .eq('id', roundId)
       .single();
 
-    // Handle duplicate key error (race condition - another client created it simultaneously)
-    if (roundError && roundError.code === '23505') {
-      console.log('Duplicate key error, fetching existing round...');
-      const { data: existing } = await supabase
-        .from('game_rounds')
-        .select('*, question:questions(*)')
-        .eq('game_id', gameId)
-        .eq('round_number', roundNumber)
-        .single();
-
-      if (existing) {
-        return { round: existing, question: existing.question! };
-      }
+    if (fetchRoundError || !roundWithQuestion?.question) {
+      throw new GameError(ErrorType.CONNECTION_LOST, fetchRoundError?.message || 'Failed to load round');
     }
 
-    if (roundError || !round) {
-      throw new GameError(ErrorType.CONNECTION_LOST, roundError?.message);
-    }
-
-    return { round, question };
+    return { round: roundWithQuestion, question: roundWithQuestion.question };
   }
 
   /**
@@ -164,72 +118,34 @@ export class RoundService {
     validateAnswer(answerText);
 
     const sanitizedAnswer = sanitizeText(answerText);
-    const isCorrect = false; // Player answers are never marked as correct
+    const session = this.getPlayerSession(playerId);
 
-    const { data, error } = await supabase
-      .from('player_answers')
-      .insert({
-        round_id: roundId,
-        player_id: playerId,
-        answer_text: sanitizedAnswer,
-        is_correct: isCorrect,
-      })
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('submit_answer', {
+      p_round_id: roundId,
+      p_player_id: playerId,
+      p_player_token: session.playerToken,
+      p_answer_text: sanitizedAnswer,
+    });
 
     if (error) {
-      // Handle duplicate submissions gracefully (e.g. double-click, retry after reconnect)
-      if (error.code === '23505') {
-        console.log('Duplicate answer detected, returning existing record');
-        const { data: existingAnswer, error: fetchError } = await supabase
-          .from('player_answers')
-          .select('*')
-          .eq('round_id', roundId)
-          .eq('player_id', playerId)
-          .single();
-
-        if (fetchError) {
-          throw new GameError(ErrorType.CONNECTION_LOST, fetchError.message);
-        }
-
-        if (existingAnswer) {
-          return existingAnswer;
-        }
-      }
-
       const errorCode = error.code ? ` [${error.code}]` : '';
-      throw new GameError(ErrorType.CONNECTION_LOST, `Vote insert failed${errorCode}: ${error.message}`);
+      throw new GameError(ErrorType.CONNECTION_LOST, `Answer submit failed${errorCode}: ${error.message}`);
     }
 
-    return data;
+    return data as PlayerAnswer;
   }
 
   /**
    * Add correct answer to the answer pool
    */
   static async addCorrectAnswer(
-    roundId: string,
-    correctAnswer: string
+    _roundId: string,
+    _correctAnswer: string
   ): Promise<PlayerAnswer> {
-    const supabase = getSupabase();
-
-    // Use NULL player_id for system-inserted correct answer
-    const { data, error } = await supabase
-      .from('player_answers')
-      .insert({
-        round_id: roundId,
-        player_id: null, // System answer (no player)
-        answer_text: correctAnswer,
-        is_correct: true,
-      })
-      .select()
-      .single();
-
-    if (error) {
-      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
-    }
-
-    return data;
+    throw new GameError(
+      ErrorType.UNAUTHORIZED,
+      'Correct answers are managed server-side only'
+    );
   }
 
   /**
@@ -283,75 +199,19 @@ export class RoundService {
       throw new GameError(ErrorType.CONNECTION_LOST, 'Cannot vote for own answer');
     }
 
-    // Preferred path: use RPC that supports updating vote choices until timer ends.
+    const session = this.getPlayerSession(voterId);
     const { data: castVoteData, error: castVoteError } = await supabase.rpc('cast_vote', {
       p_round_id: roundId,
       p_voter_id: voterId,
+      p_player_token: session.playerToken,
       p_answer_id: answerId,
     });
 
-    if (!castVoteError) {
-      const vote = Array.isArray(castVoteData) ? castVoteData[0] : castVoteData;
-      if (vote) {
-        return vote as Vote;
-      }
-    }
-
-    // Backward compatibility fallback:
-    // - RPC missing (not yet deployed)
-    // - RPC exists but is outdated/broken (e.g. points_earned check drift)
-    const castVoteErrorText = `${castVoteError?.message || ''} ${castVoteError?.details || ''} ${castVoteError?.hint || ''}`.toLocaleLowerCase();
-    const rpcMissing = castVoteErrorText.includes('could not find the function public.cast_vote');
-    const rpcConstraintDrift = castVoteErrorText.includes('votes_points_earned_check');
-
-    if (castVoteError && !rpcMissing && !rpcConstraintDrift) {
+    if (castVoteError) {
       throw new GameError(ErrorType.CONNECTION_LOST, castVoteError.message);
     }
 
-    const { data, error } = await supabase
-      .from('votes')
-      .upsert(
-        {
-          round_id: roundId,
-          voter_id: voterId,
-          answer_id: answerId,
-          points_earned: 0,
-        },
-        { onConflict: 'round_id,voter_id' }
-      )
-      .select()
-      .single();
-
-    if (error) {
-      const errorText = `${error.message || ''} ${error.details || ''} ${error.hint || ''}`.toLocaleLowerCase();
-      const duplicateByAnswerConstraint = error.code === '23505' && (
-        errorText.includes('answer_id') ||
-        errorText.includes('round_id, answer_id') ||
-        errorText.includes('votes_round_id_answer_id') ||
-        errorText.includes('votes_answer_id')
-      );
-
-      const missingUpdatePolicy = error.code === '42501' && errorText.includes('row-level security');
-
-      if (duplicateByAnswerConstraint) {
-        throw new GameError(
-          ErrorType.CONNECTION_LOST,
-          'Vote constraint mismatch detected. Multiple players must be able to vote the same answer.'
-        );
-      }
-
-      if (missingUpdatePolicy) {
-        throw new GameError(
-          ErrorType.CONNECTION_LOST,
-          'Vote change requires cast_vote RPC migration. Please apply latest Supabase migrations.'
-        );
-      }
-
-      const errorCode = error.code ? ` [${error.code}]` : '';
-      throw new GameError(ErrorType.CONNECTION_LOST, `Vote insert failed${errorCode}: ${error.message}`);
-    }
-
-    return data;
+    return (Array.isArray(castVoteData) ? castVoteData[0] : castVoteData) as Vote;
   }
 
   /**
@@ -509,37 +369,13 @@ export class RoundService {
    * Update round status
    */
   static async updateRoundStatus(
-    roundId: string,
-    status: 'answering' | 'voting' | 'completed'
+    _roundId: string,
+    _status: 'answering' | 'voting' | 'completed'
   ): Promise<GameRound> {
-    const supabase = getSupabase();
-
-    const updateData: any = { status };
-
-    // Reset timer when transitioning to voting phase
-    // Use a special marker that triggers DB default
-    if (status === 'voting') {
-      updateData.timer_duration = 20; // 20 seconds for voting
-      // Don't set timer_starts_at - let it update via trigger or we'll fetch fresh
-    }
-
-    await supabase
-      .from('game_rounds')
-      .update(updateData)
-      .eq('id', roundId);
-
-    // Fetch the updated round to get server's timer_starts_at
-    const { data: updatedRound, error } = await supabase
-      .from('game_rounds')
-      .select('*')
-      .eq('id', roundId)
-      .single();
-
-    if (error || !updatedRound) {
-      throw new GameError(ErrorType.CONNECTION_LOST, error?.message || 'Failed to fetch updated round');
-    }
-
-    return updatedRound;
+    throw new GameError(
+      ErrorType.UNAUTHORIZED,
+      'Round status is managed server-side only'
+    );
   }
 
   /**

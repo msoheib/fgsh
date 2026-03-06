@@ -10,9 +10,50 @@ import { generateGameCode } from '../utils/gameCode';
 import { validatePlayerName, sanitizeText } from '../utils/validation';
 import { getRandomAvatarColor } from '../utils/avatars';
 import { GAME_CONFIG } from '../constants/game';
+import { getGameSession } from '../utils/sessionStorage';
 
 export class GameService {
   private static claimCaptainRpcAvailable: boolean | null = null;
+
+  private static getPlayerSession(gameId?: string, playerId?: string): {
+    gameId: string;
+    playerId: string;
+    playerToken: string;
+  } {
+    const session = getGameSession();
+    if (!session?.playerId || !session.playerToken) {
+      throw new GameError(ErrorType.UNAUTHORIZED, 'Player session expired');
+    }
+
+    if (playerId && session.playerId !== playerId) {
+      throw new GameError(ErrorType.UNAUTHORIZED, 'Player session mismatch');
+    }
+
+    if (gameId && session.gameId !== gameId) {
+      throw new GameError(ErrorType.UNAUTHORIZED, 'Game session mismatch');
+    }
+
+    return {
+      gameId: session.gameId,
+      playerId: session.playerId,
+      playerToken: session.playerToken,
+    };
+  }
+
+  private static async getPlayerById(playerId: string): Promise<Player> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase
+      .from('players')
+      .select('*')
+      .eq('id', playerId)
+      .single();
+
+    if (error || !data) {
+      throw new GameError(ErrorType.CONNECTION_LOST, error?.message || 'Player not found');
+    }
+
+    return data;
+  }
 
   private static getEnforcedSettings(): GameSettings {
     return {
@@ -35,9 +76,11 @@ export class GameService {
     }
 
     const supabase = getSupabase();
+    const session = this.getPlayerSession(gameId, playerId);
     const { data, error } = await supabase.rpc('claim_phase_captain_if_unassigned', {
       p_game_id: gameId,
       p_player_id: playerId,
+      p_player_token: session.playerToken,
     });
 
     if (error) {
@@ -74,7 +117,7 @@ export class GameService {
   static async createGame(
     hostName: string,
     _settings: GameSettings
-  ): Promise<{ game: Game; player: Player }> {
+  ): Promise<{ game: Game; player: Player; playerToken: string }> {
     const supabase = getSupabase();
     const enforcedSettings = this.getEnforcedSettings();
 
@@ -112,47 +155,38 @@ export class GameService {
       throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to generate unique code');
     }
 
-    // Create game with authenticated host
-    const { data: game, error: gameError } = await supabase
-      .from('games')
-      .insert({
-        code,
-        round_count: enforcedSettings.roundCount,
-        max_players: enforcedSettings.maxPlayers,
-        status: 'waiting',
-        auth_host_id: user.id,
-      })
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('create_authenticated_game', {
+      p_code: code,
+      p_round_count: enforcedSettings.roundCount,
+      p_max_players: enforcedSettings.maxPlayers,
+      p_host_name: sanitizedName,
+      p_is_display_mode: false,
+      p_avatar_color: getRandomAvatarColor(),
+    });
 
-    if (gameError || !game) {
-      throw new GameError(ErrorType.CONNECTION_LOST, gameError?.message);
+    if (error) {
+      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
 
-    // Add creator as first player
-    const { data: player, error: playerError } = await supabase
-      .from('players')
-      .insert({
-        game_id: game.id,
-        user_name: sanitizedName,
-        avatar_color: getRandomAvatarColor(),
-      })
-      .select()
-      .single();
-
-    if (playerError || !player) {
-      // Rollback: delete game if player creation failed
-      await supabase.from('games').delete().eq('id', game.id);
-      throw new GameError(ErrorType.CONNECTION_LOST, playerError?.message);
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result?.game_id || !result?.player_id || !result?.player_token) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to create secure host session');
     }
 
-    // Update game with host_id and phase_captain_id (host starts as captain)
-    await supabase
-      .from('games')
-      .update({ host_id: player.id, phase_captain_id: player.id })
-      .eq('id', game.id);
+    const [game, player] = await Promise.all([
+      this.getGame(result.game_id),
+      this.getPlayerById(result.player_id),
+    ]);
 
-    return { game: { ...game, host_id: player.id, phase_captain_id: player.id }, player };
+    if (!game || !player) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to load created game');
+    }
+
+    return {
+      game,
+      player,
+      playerToken: result.player_token as string,
+    };
   }
 
   /**
@@ -192,22 +226,27 @@ export class GameService {
       throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to generate unique code');
     }
 
-    // Create game without host or phase captain (but with authenticated host ID)
-    const { data: game, error: gameError } = await supabase
-      .from('games')
-      .insert({
-        code,
-        round_count: enforcedSettings.roundCount,
-        max_players: enforcedSettings.maxPlayers,
-        status: 'waiting',
-        auth_host_id: user.id,
-        // host_id and phase_captain_id will be set when first player joins
-      })
-      .select()
-      .single();
+    const { data, error } = await supabase.rpc('create_authenticated_game', {
+      p_code: code,
+      p_round_count: enforcedSettings.roundCount,
+      p_max_players: enforcedSettings.maxPlayers,
+      p_host_name: null,
+      p_is_display_mode: true,
+      p_avatar_color: null,
+    });
 
-    if (gameError || !game) {
-      throw new GameError(ErrorType.CONNECTION_LOST, gameError?.message);
+    if (error) {
+      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result?.game_id) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to create display game');
+    }
+
+    const game = await this.getGame(result.game_id);
+    if (!game) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to load created display game');
     }
 
     return game;
@@ -219,7 +258,7 @@ export class GameService {
   static async joinGame(
     code: string,
     playerName: string
-  ): Promise<{ game: Game; player: Player }> {
+  ): Promise<{ game: Game; player: Player; playerToken: string }> {
     const supabase = getSupabase();
 
     // Validate inputs
@@ -228,99 +267,47 @@ export class GameService {
     const sanitizedName = sanitizeText(playerName);
     const normalizedCode = code.replace(/\s+/g, '').toUpperCase();
 
-    // Get game
-    const { data: game, error: gameError } = await supabase
-      .from('games')
-      .select('*')
-      .eq('code', normalizedCode)
-      .single();
+    const { data, error } = await supabase.rpc('join_game', {
+      p_code: normalizedCode,
+      p_player_name: sanitizedName,
+      p_avatar_color: getRandomAvatarColor(),
+    });
 
-    if (gameError || !game) {
-      throw new GameError(ErrorType.GAME_NOT_FOUND);
-    }
-
-    // Check if game already started
-    if (game.status !== 'waiting') {
-      throw new GameError(ErrorType.ALREADY_STARTED);
-    }
-
-    // Check player count
-    const { count, error: countError } = await supabase
-      .from('players')
-      .select('*', { count: 'exact', head: true })
-      .eq('game_id', game.id);
-
-    if (countError) {
-      throw new GameError(ErrorType.CONNECTION_LOST, countError.message);
-    }
-
-    if ((count || 0) >= game.max_players) {
-      throw new GameError(ErrorType.GAME_FULL);
-    }
-
-    // Check for existing player with same name (allow reconnect if disconnected)
-    const { data: existingPlayer } = await supabase
-      .from('players')
-      .select('*')
-      .eq('game_id', game.id)
-      .eq('user_name', sanitizedName)
-      .maybeSingle();
-
-    if (existingPlayer) {
-      // Let a dropped player reclaim their spot
-      if (existingPlayer.connection_status === 'disconnected') {
-        console.log('🔄 Reconnecting disconnected player:', existingPlayer.user_name);
-        const { data: reconnectedPlayer, error: reconnectError } = await supabase
-          .from('players')
-          .update({ connection_status: 'connected' })
-          .eq('id', existingPlayer.id)
-          .select()
-          .single();
-
-        if (reconnectError || !reconnectedPlayer) {
-          throw new GameError(ErrorType.CONNECTION_LOST, reconnectError?.message);
-        }
-
-        const phaseCaptainId = await this.claimPhaseCaptainIfNeeded(
-          game.id,
-          game.phase_captain_id,
-          reconnectedPlayer.id
-        );
-
-        return {
-          game: { ...game, phase_captain_id: phaseCaptainId },
-          player: reconnectedPlayer
-        };
+    if (error) {
+      const message = error.message.toLowerCase();
+      if (message.includes('game not found')) {
+        throw new GameError(ErrorType.GAME_NOT_FOUND);
       }
-      // Player exists and is connected - duplicate name error
-      throw new GameError(ErrorType.DUPLICATE_NAME);
+      if (message.includes('already')) {
+        throw new GameError(ErrorType.ALREADY_STARTED);
+      }
+      if (message.includes('full')) {
+        throw new GameError(ErrorType.GAME_FULL);
+      }
+      if (message.includes('name already')) {
+        throw new GameError(ErrorType.DUPLICATE_NAME);
+      }
+      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
 
-    // Add player
-    const { data: player, error: playerError } = await supabase
-      .from('players')
-      .insert({
-        game_id: game.id,
-        user_name: sanitizedName,
-        avatar_color: getRandomAvatarColor(),
-      })
-      .select()
-      .single();
-
-    if (playerError || !player) {
-      throw new GameError(ErrorType.CONNECTION_LOST, playerError?.message);
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result?.game_id || !result?.player_id || !result?.player_token) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to create secure player session');
     }
 
+    const [game, player] = await Promise.all([
+      this.getGame(result.game_id),
+      this.getPlayerById(result.player_id),
+    ]);
 
-    const phaseCaptainId = await this.claimPhaseCaptainIfNeeded(
-      game.id,
-      game.phase_captain_id,
-      player.id
-    );
+    if (!game || !player) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to load joined game');
+    }
 
     return {
-      game: { ...game, phase_captain_id: phaseCaptainId },
-      player
+      game,
+      player,
+      playerToken: result.player_token as string,
     };
   }
 
@@ -330,39 +317,15 @@ export class GameService {
    */
   static async startGame(gameId: string, playerId: string): Promise<void> {
     const supabase = getSupabase();
+    const session = this.getPlayerSession(gameId, playerId);
 
     const { data, error } = await supabase.rpc('start_game_as_player', {
       p_game_id: gameId,
       p_player_id: playerId,
+      p_player_token: session.playerToken,
     });
 
     if (error) {
-      // Backward compatibility if migration is not applied yet.
-      if (error.message?.includes('Could not find the function public.start_game_as_player')) {
-        const { data: updatedGame, error: updateError } = await supabase
-          .from('games')
-          .update({
-            status: 'playing',
-            current_round: 1,
-          })
-          .eq('id', gameId)
-          .eq('status', 'waiting')
-          .select('id')
-          .maybeSingle();
-
-        if (updateError) {
-          throw new GameError(ErrorType.CONNECTION_LOST, updateError.message);
-        }
-
-        if (!updatedGame) {
-          throw new GameError(
-            ErrorType.CONNECTION_LOST,
-            'Start game failed. Apply latest database migrations to enable player-controlled start.'
-          );
-        }
-        return;
-      }
-
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
 
@@ -376,30 +339,11 @@ export class GameService {
    * Start the game from display mode (no player verification)
    * Used when TV display wants to start the game
    */
-  static async startGameFromDisplay(gameId: string): Promise<void> {
-    const supabase = getSupabase();
-
-    // Update game status
-    const { error } = await supabase
-      .from('games')
-      .update({
-        status: 'playing',
-        current_round: 1,
-      })
-      .eq('id', gameId);
-
-    if (error) {
-      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
-    }
-
-    // Ensure the first round exists immediately (safety for TV mode)
-    try {
-      const { RoundService } = await import('./RoundService');
-      await RoundService.createRound(gameId, 1);
-    } catch (err) {
-      console.error('Failed to create initial round from display start:', err);
-      // Do not throw to avoid blocking start; phase captain can still create
-    }
+  static async startGameFromDisplay(_gameId: string): Promise<void> {
+    throw new GameError(
+      ErrorType.UNAUTHORIZED,
+      'A joined controller is required to start the game'
+    );
   }
 
   /**
@@ -468,12 +412,16 @@ export class GameService {
     playerId: string,
     status: 'connected' | 'disconnected'
   ): Promise<void> {
-    const supabase = getSupabase();
+    const session = this.getPlayerSession(undefined, playerId);
+    if (status === 'connected') {
+      await this.reconnectPlayerSession(session.gameId, playerId);
+      return;
+    }
 
-    await supabase
-      .from('players')
-      .update({ connection_status: status })
-      .eq('id', playerId);
+    throw new GameError(
+      ErrorType.UNAUTHORIZED,
+      'Direct player disconnect is no longer supported'
+    );
   }
 
   /**
@@ -486,10 +434,12 @@ export class GameService {
     playerId: string
   ): Promise<{ gameEnded: boolean; newCaptainId: string | null; message: string }> {
     const supabase = getSupabase();
+    const session = this.getPlayerSession(gameId, playerId);
 
     const { data, error } = await supabase.rpc('leave_game_as_player', {
       p_game_id: gameId,
       p_player_id: playerId,
+      p_player_token: session.playerToken,
     });
 
     if (error) {
@@ -517,23 +467,15 @@ export class GameService {
    */
   static async advanceToNextRound(gameId: string, playerId: string): Promise<void> {
     const supabase = getSupabase();
+    const session = this.getPlayerSession(gameId, playerId);
 
     const { data, error } = await supabase.rpc('advance_to_next_round_by_player', {
       p_game_id: gameId,
       p_player_id: playerId,
+      p_player_token: session.playerToken,
     });
 
     if (error) {
-      // Backward compatibility with old RPC signature.
-      if (error.message?.includes('Could not find the function public.advance_to_next_round_by_player')) {
-        const { error: fallbackError } = await supabase.rpc('advance_to_next_round', {
-          p_game_id: gameId
-        });
-        if (fallbackError) {
-          throw new GameError(ErrorType.CONNECTION_LOST, fallbackError.message);
-        }
-        return;
-      }
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
 
@@ -543,52 +485,89 @@ export class GameService {
     }
   }
 
-  /**
-   * End game
-   */
-  static async incrementRound(gameId: string): Promise<void> {
+  static async reconnectPlayerSession(
+    gameId: string,
+    playerId: string
+  ): Promise<{ player: Player; phaseCaptainId: string | null }> {
     const supabase = getSupabase();
+    const session = this.getPlayerSession(gameId, playerId);
 
-    // Get current game state
-    const { data: game } = await supabase
-      .from('games')
-      .select('current_round, round_count')
-      .eq('id', gameId)
-      .single();
+    const { data, error } = await supabase.rpc('reconnect_player_session', {
+      p_game_id: gameId,
+      p_player_id: playerId,
+      p_player_token: session.playerToken,
+    });
 
-    if (!game) {
-      throw new GameError(ErrorType.CONNECTION_LOST, 'Game not found');
+    if (error) {
+      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
 
-    const nextRound = game.current_round + 1;
-
-    // Check if game should end
-    if (nextRound > game.round_count) {
-      await this.endGame(gameId);
-      return;
+    const result = Array.isArray(data) ? data[0] : data;
+    if (!result?.player_id) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to reconnect player');
     }
 
-    // Increment to next round
-    const { error } = await supabase
-      .from('games')
-      .update({ current_round: nextRound })
-      .eq('id', gameId);
+    const player = await this.getPlayerById(result.player_id);
+    return {
+      player,
+      phaseCaptainId: result.phase_captain_id ?? null,
+    };
+  }
+
+  static async saveCategoryPrompt(
+    gameId: string,
+    roundNumber: number,
+    playerId: string,
+    input: { options?: string[]; selectedCategory?: string | null }
+  ): Promise<void> {
+    const supabase = getSupabase();
+    const session = this.getPlayerSession(gameId, playerId);
+
+    const { error } = await supabase.rpc('save_game_category_prompt', {
+      p_game_id: gameId,
+      p_round_number: roundNumber,
+      p_player_id: playerId,
+      p_player_token: session.playerToken,
+      p_options: input.options ?? null,
+      p_selected_category: input.selectedCategory ?? null,
+    });
 
     if (error) {
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
   }
 
-  static async endGame(gameId: string): Promise<void> {
+  static async forceAdvanceRound(roundId: string, playerId: string): Promise<void> {
     const supabase = getSupabase();
+    const session = this.getPlayerSession(undefined, playerId);
 
-    const { error } = await supabase
-      .from('games')
-      .update({ status: 'finished' })
-      .eq('id', gameId);
+    const { error } = await supabase.rpc('force_advance_round_as_player', {
+      p_round_id: roundId,
+      p_player_id: playerId,
+      p_player_token: session.playerToken,
+    });
 
     if (error) {
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+    }
+  }
+
+  /**
+   * End game
+   */
+  static async incrementRound(gameId: string): Promise<void> {
+    const session = this.getPlayerSession(gameId);
+    await this.advanceToNextRound(gameId, session.playerId!);
+  }
+
+  static async endGame(gameId: string): Promise<void> {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('end_game_as_host', {
+      p_game_id: gameId,
+    });
+
+    if (error || data !== true) {
+      throw new GameError(ErrorType.CONNECTION_LOST, error?.message || 'Failed to end game');
     }
   }
 }

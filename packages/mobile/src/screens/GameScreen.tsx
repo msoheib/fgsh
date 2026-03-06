@@ -303,7 +303,7 @@ export const GameScreen: React.FC = () => {
 
   // Handle timer expiration - call server-side force_advance_round
   useEffect(() => {
-    if (!currentRound || !canControlFlow || timeRemaining !== 0) {
+    if (!currentRound || !currentPlayer || !canControlFlow || timeRemaining !== 0) {
       return;
     }
     if (roundStatus !== 'answering' && roundStatus !== 'voting') {
@@ -324,19 +324,9 @@ export const GameScreen: React.FC = () => {
     const handleTimerExpired = async () => {
       console.log('⏰ Timer expired! Calling server-side force_advance_round...');
       try {
-        const { getSupabase } = await import('@fakash/shared');
-        const supabase = getSupabase();
-
-        const { error } = await supabase.rpc('force_advance_round', {
-          p_round_id: currentRound.id
-        });
-
-        if (error) {
-          console.error('Failed to force advance round:', error);
-          forceAdvanceKeyRef.current = null;
-        } else {
-          console.log('Server processing timer expiration');
-        }
+        const { GameService } = await import('@fakash/shared');
+        await GameService.forceAdvanceRound(currentRound.id, currentPlayer.id);
+        console.log('Server processing timer expiration');
       } catch (err) {
         console.error('Error calling force_advance_round:', err);
         forceAdvanceKeyRef.current = null;

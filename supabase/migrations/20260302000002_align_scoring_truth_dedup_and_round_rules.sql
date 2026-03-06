@@ -30,8 +30,7 @@ BEGIN
   FROM game_rounds gr
   JOIN games g ON g.id = gr.game_id
   LEFT JOIN questions q ON q.id = gr.question_id
-  WHERE gr.id = p_round_id
-  FOR UPDATE;
+  WHERE gr.id = p_round_id;
 
   IF v_round_number IS NULL THEN
     RETURN;
@@ -370,4 +369,3 @@ $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION force_advance_round IS
 'Forces phase transitions on timeout; guarded against duplicate calls and removes truth-identical player lies.';
-

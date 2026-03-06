@@ -20,7 +20,7 @@ RETURNS TABLE(
 BEGIN
   RETURN QUERY SELECT
     NOW() as server_time,
-    EXTRACT(EPOCH FROM NOW()) * 1000 as timestamp_ms;
+    (EXTRACT(EPOCH FROM NOW()) * 1000)::BIGINT as timestamp_ms;
 END;
 $$ LANGUAGE plpgsql SECURITY DEFINER;
 
@@ -126,10 +126,10 @@ DECLARE
   v_timer_starts_at TIMESTAMPTZ;
 BEGIN
   -- Lock the round row for update
-  SELECT status, timer_starts_at
+  SELECT gr.status, gr.timer_starts_at
   INTO v_current_status, v_timer_starts_at
-  FROM game_rounds
-  WHERE id = p_round_id
+  FROM game_rounds gr
+  WHERE gr.id = p_round_id
   FOR UPDATE;
 
   -- Check if round exists

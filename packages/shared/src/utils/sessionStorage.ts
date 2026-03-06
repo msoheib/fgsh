@@ -7,6 +7,7 @@ export interface GameSession {
   gameId: string;
   gameCode?: string;
   playerId: string | null; // Null for display mode
+  playerToken?: string;
   playerName?: string;
   isPhaseCaptain?: boolean;
   isDisplayMode?: boolean; // True for TV display-only mode
