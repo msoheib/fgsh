@@ -133,10 +133,13 @@ export const Game: React.FC = () => {
   const reviewLockSeconds = Math.max(GAME_CONFIG.RESULTS_DISPLAY_DURATION, revealEstimateSeconds);
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
   const isVotingOpen = roundStatus === 'voting' && timerActive && timeRemaining > 0;
-  const isAwaitingStageCategorySelection = !!game &&
+  const isWaitingForNextRound =
+    !!game &&
     game.status === 'playing' &&
-    !currentRound &&
     game.current_round > 0 &&
+    (!currentRound || currentRound.round_number < game.current_round);
+  const isAwaitingStageCategorySelection = !!game &&
+    isWaitingForNextRound &&
     isStageStartRound(game.current_round);
 
   const votingAnswers = useMemo(() => {

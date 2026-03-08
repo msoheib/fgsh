@@ -353,14 +353,15 @@ export const TVGame: React.FC = () => {
   const confetti = useConfetti();
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
   const displayRoundNumber = Math.max(game?.current_round ?? 0, 1);
-  const isAwaitingStageCategorySelection = !!game
+  const isWaitingForNextRound = !!game
     && game.status === 'playing'
-    && !currentRound
     && game.current_round > 0
+    && (!currentRound || currentRound.round_number < game.current_round);
+  const isAwaitingStageCategorySelection = !!game
+    && isWaitingForNextRound
     && isStageStartRound(game.current_round);
   const shouldShowCategorySelectionWait = !!game
-    && game.status === 'playing'
-    && !currentRound
+    && isWaitingForNextRound
     && (
       isAwaitingStageCategorySelection ||
       // Handle short sync windows where current_round may still be 0 on TV.
