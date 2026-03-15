@@ -395,10 +395,10 @@ export const TVGame: React.FC = () => {
     return Array.from(grouped.values());
   }, [votingAnswers]);
 
-  const playTvCue = useCallback(async (cueKey: GameAudioCueKey) => {
-    if (!audioEnabled) return;
+  const playTvCue = useCallback(async (cueKey: GameAudioCueKey): Promise<boolean> => {
+    if (!audioEnabled) return false;
     const cue = audioCuesByKey[cueKey];
-    if (!cue || !cue.is_active || !cue.audio_url) return;
+    if (!cue || !cue.is_active || !cue.audio_url) return false;
 
     try {
       if (tvNarrationAudioRef.current) {
@@ -410,17 +410,74 @@ export const TVGame: React.FC = () => {
       tvNarrationAudioRef.current = audio;
       await audio.play();
       setAudioBlocked(false);
+      return true;
     } catch (err) {
       console.warn(`TV cue "${cueKey}" could not autoplay:`, err);
       setAudioBlocked(true);
+      return true;
     }
   }, [audioCuesByKey, audioEnabled]);
 
   const enableTvAudio = useCallback(async () => {
     setAudioEnabled(true);
     setAudioBlocked(false);
-    await playTvCue('answering_start');
-  }, [playTvCue]);
+    if (shouldShowCategorySelectionWait) {
+      await playTvCue('category_selection_start');
+      return;
+    }
+
+    if (!game || !currentRound) {
+      return;
+    }
+
+    if (roundStatus === 'completed') {
+      await playTvCue('reveal_start');
+      return;
+    }
+
+    if (roundStatus === 'voting') {
+      await playTvCue('voting_start');
+      return;
+    }
+
+    if (roundStatus === 'answering') {
+      const multiplier = getRoundMultiplier(currentRound.round_number, game.round_count);
+      if (multiplier === 3) {
+        await playTvCue('triple_points_round_start');
+      } else if (multiplier === 2) {
+        await playTvCue('double_points_round_start');
+      } else {
+        await playTvCue('answering_start');
+      }
+    }
+  }, [currentRound, game, playTvCue, roundStatus, shouldShowCategorySelectionWait]);
+
+  const getPhaseCueKey = useCallback((): GameAudioCueKey | null => {
+    if (!game || !currentRound) {
+      return null;
+    }
+
+    if (roundStatus === 'completed') {
+      return 'reveal_start';
+    }
+
+    if (roundStatus === 'voting') {
+      return 'voting_start';
+    }
+
+    if (roundStatus === 'answering') {
+      const multiplier = getRoundMultiplier(currentRound.round_number, game.round_count);
+      if (multiplier === 3) {
+        return 'triple_points_round_start';
+      }
+      if (multiplier === 2) {
+        return 'double_points_round_start';
+      }
+      return 'answering_start';
+    }
+
+    return null;
+  }, [currentRound, game, roundStatus]);
 
   const recoverRoundState = useCallback(async () => {
     if (!game || game.status !== 'playing' || isRecovering) return;
@@ -695,15 +752,27 @@ export const TVGame: React.FC = () => {
 
   // Narration cue for category selection prompt.
   useEffect(() => {
-    if (shouldShowCategorySelectionWait && !categoryPromptPlayedRef.current) {
-      categoryPromptPlayedRef.current = true;
-      playTvCue('category_selection_start');
+    if (!shouldShowCategorySelectionWait) {
+      categoryPromptPlayedRef.current = false;
       return;
     }
 
-    if (!shouldShowCategorySelectionWait) {
-      categoryPromptPlayedRef.current = false;
-    }
+    if (categoryPromptPlayedRef.current) return;
+
+    let isCancelled = false;
+
+    const playCategoryCue = async () => {
+      const attempted = await playTvCue('category_selection_start');
+      if (!isCancelled && attempted) {
+        categoryPromptPlayedRef.current = true;
+      }
+    };
+
+    void playCategoryCue();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [shouldShowCategorySelectionWait, playTvCue]);
 
   // Narration cue for major TV phase transitions.
@@ -715,29 +784,25 @@ export const TVGame: React.FC = () => {
 
     const phaseKey = `${currentRound.id}:${roundStatus}`;
     if (previousPhaseKeyRef.current === phaseKey) return;
-    previousPhaseKeyRef.current = phaseKey;
 
-    if (roundStatus === 'answering') {
-      const multiplier = getRoundMultiplier(currentRound.round_number, game.round_count);
-      if (multiplier === 3) {
-        playTvCue('triple_points_round_start');
-      } else if (multiplier === 2) {
-        playTvCue('double_points_round_start');
-      } else {
-        playTvCue('answering_start');
+    const cueKey = getPhaseCueKey();
+    if (!cueKey) return;
+
+    let isCancelled = false;
+
+    const playPhaseCue = async () => {
+      const attempted = await playTvCue(cueKey);
+      if (!isCancelled && attempted) {
+        previousPhaseKeyRef.current = phaseKey;
       }
-      return;
-    }
+    };
 
-    if (roundStatus === 'voting') {
-      playTvCue('voting_start');
-      return;
-    }
+    void playPhaseCue();
 
-    if (roundStatus === 'completed') {
-      playTvCue('reveal_start');
-    }
-  }, [game, currentRound, roundStatus, playTvCue]);
+    return () => {
+      isCancelled = true;
+    };
+  }, [game, currentRound, roundStatus, playTvCue, getPhaseCueKey]);
 
   // Stop narration audio when component unmounts.
   useEffect(() => {
