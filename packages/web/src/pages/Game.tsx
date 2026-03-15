@@ -839,30 +839,27 @@ export const Game: React.FC = () => {
         {/* ANSWERING PHASE */}
         {roundStatus === 'answering' && (
           <div>
-            {!hasSubmittedAnswer ? (
-              <>
-                <input
-                  type="text"
-                  value={answerInput}
-                  onChange={(e) => setAnswerInput(e.target.value)}
-                  placeholder="اكتب كذبتك..."
-                  className="w-full p-3 mb-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all duration-200"
-                  maxLength={GAME_CONFIG.MAX_ANSWER_LENGTH}
-                  onKeyPress={(e) => e.key === 'Enter' && handleSubmitAnswer()}
-                  autoFocus
-                />
-                <button
-                  onClick={handleSubmitAnswer}
-                  disabled={!answerInput.trim()}
-                  className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50 active:scale-95 transition-transform duration-150"
-                >
-                  إرسال
-                </button>
-              </>
-            ) : (
+            <input
+              type="text"
+              value={answerInput}
+              onChange={(e) => setAnswerInput(e.target.value)}
+              placeholder="اكتب كذبتك..."
+              className="w-full p-3 mb-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all duration-200"
+              maxLength={GAME_CONFIG.MAX_ANSWER_LENGTH}
+              onKeyPress={(e) => e.key === 'Enter' && handleSubmitAnswer()}
+              autoFocus
+            />
+            <button
+              onClick={handleSubmitAnswer}
+              disabled={!answerInput.trim()}
+              className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50 active:scale-95 transition-transform duration-150"
+            >
+              {hasSubmittedAnswer ? 'تحديث الإجابة' : 'إرسال'}
+            </button>
+            {hasSubmittedAnswer && (
               <div className="text-center py-4">
-                <p className="text-lg">✅ تم الإرسال</p>
-                <p className="text-xs text-white/50 mt-1">تابع على الشاشة</p>
+                <p className="text-lg">✅ تم حفظ إجابتك</p>
+                <p className="text-xs text-white/50 mt-1">يمكنك تعديلها حتى ينتهي الوقت</p>
               </div>
             )}
           </div>
