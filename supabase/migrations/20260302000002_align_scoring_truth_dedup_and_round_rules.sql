@@ -146,7 +146,6 @@ DECLARE
   v_round RECORD;
   v_required_players INTEGER;
   v_answer_count INTEGER;
-  v_vote_count INTEGER;
   v_correct_answer_exists BOOLEAN;
   v_connected_players INTEGER;
   v_lie_count INTEGER;
@@ -234,28 +233,14 @@ BEGIN
   END IF;
 
   IF v_round.status = 'voting' THEN
-    SELECT COUNT(DISTINCT v.voter_id) INTO v_vote_count
-    FROM votes v
-    WHERE v.round_id = p_round_id;
-
-    IF v_vote_count >= v_required_players THEN
-      BEGIN
-        PERFORM calculate_and_update_scores(p_round_id, v_round.game_id);
-      EXCEPTION
-        WHEN undefined_function THEN
-          NULL;
-      END;
-
-      UPDATE game_rounds
-      SET status = 'completed'
-      WHERE id = p_round_id;
-    END IF;
+    -- Voting stays open until the timer expires so players can revise votes.
+    RETURN;
   END IF;
 END;
 $$ LANGUAGE plpgsql;
 
 COMMENT ON FUNCTION advance_round_if_ready IS
-'Answering->Voting->Completed with fixed quorum. Truth-identical player lies are removed before voting.';
+'Answering advances by quorum; voting stays open until timeout. Truth-identical player lies are removed before voting.';
 
 
 CREATE OR REPLACE FUNCTION force_advance_round(p_round_id UUID)

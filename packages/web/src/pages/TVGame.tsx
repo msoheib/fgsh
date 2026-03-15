@@ -350,6 +350,7 @@ export const TVGame: React.FC = () => {
   const tvNarrationAudioRef = useRef<HTMLAudioElement | null>(null);
   const previousPhaseKeyRef = useRef<string | null>(null);
   const categoryPromptPlayedRef = useRef<boolean>(false);
+  const pendingCueKeyRef = useRef<GameAudioCueKey | null>(null);
   const confetti = useConfetti();
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
   const displayRoundNumber = Math.max(game?.current_round ?? 0, 1);
@@ -410,47 +411,17 @@ export const TVGame: React.FC = () => {
       tvNarrationAudioRef.current = audio;
       await audio.play();
       setAudioBlocked(false);
+      if (pendingCueKeyRef.current === cueKey) {
+        pendingCueKeyRef.current = null;
+      }
       return true;
     } catch (err) {
       console.warn(`TV cue "${cueKey}" could not autoplay:`, err);
+      pendingCueKeyRef.current = cueKey;
       setAudioBlocked(true);
-      return true;
+      return false;
     }
   }, [audioCuesByKey, audioEnabled]);
-
-  const enableTvAudio = useCallback(async () => {
-    setAudioEnabled(true);
-    setAudioBlocked(false);
-    if (shouldShowCategorySelectionWait) {
-      await playTvCue('category_selection_start');
-      return;
-    }
-
-    if (!game || !currentRound) {
-      return;
-    }
-
-    if (roundStatus === 'completed') {
-      await playTvCue('reveal_start');
-      return;
-    }
-
-    if (roundStatus === 'voting') {
-      await playTvCue('voting_start');
-      return;
-    }
-
-    if (roundStatus === 'answering') {
-      const multiplier = getRoundMultiplier(currentRound.round_number, game.round_count);
-      if (multiplier === 3) {
-        await playTvCue('triple_points_round_start');
-      } else if (multiplier === 2) {
-        await playTvCue('double_points_round_start');
-      } else {
-        await playTvCue('answering_start');
-      }
-    }
-  }, [currentRound, game, playTvCue, roundStatus, shouldShowCategorySelectionWait]);
 
   const getPhaseCueKey = useCallback((): GameAudioCueKey | null => {
     if (!game || !currentRound) {
@@ -478,6 +449,34 @@ export const TVGame: React.FC = () => {
 
     return null;
   }, [currentRound, game, roundStatus]);
+
+  const enableTvAudio = useCallback(async () => {
+    setAudioEnabled(true);
+    setAudioBlocked(false);
+
+    const pendingCueKey = pendingCueKeyRef.current;
+    if (pendingCueKey) {
+      await playTvCue(pendingCueKey);
+      return;
+    }
+
+    if (!game || !currentRound) {
+      if (shouldShowCategorySelectionWait) {
+        await playTvCue('category_selection_start');
+      }
+      return;
+    }
+
+    if (shouldShowCategorySelectionWait) {
+      await playTvCue('category_selection_start');
+      return;
+    }
+
+    const cueKey = getPhaseCueKey();
+    if (cueKey) {
+      await playTvCue(cueKey);
+    }
+  }, [currentRound, game, getPhaseCueKey, playTvCue, shouldShowCategorySelectionWait]);
 
   const recoverRoundState = useCallback(async () => {
     if (!game || game.status !== 'playing' || isRecovering) return;

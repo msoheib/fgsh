@@ -143,8 +143,9 @@ export const useRoundStore = create<RoundState>((set, get) => ({
   // NOTE: startVoting() and endRound() methods have been removed
   // Phase transitions are now handled entirely server-side via database triggers
   // See: supabase/migrations/add_server_side_phase_transitions.sql
-  // - advance_round_if_ready() trigger runs after answer/vote submissions
-  // - force_advance_round() RPC is called by phase captain when timer expires
+  // - advance_round_if_ready() moves answering -> voting once answer quorum is met
+  // - force_advance_round() RPC is called by phase captain when the timer expires
+  // - voting remains open until timeout so players can revise their votes
 
   // Submit vote
   submitVote: async (playerId: string, answerId: string) => {
