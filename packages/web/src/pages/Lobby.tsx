@@ -136,14 +136,6 @@ export const Lobby: React.FC = () => {
         >
           مغادرة
         </button>
-        
-        {/* Debug Info (Tiny) */}
-        <div className="mt-4 text-[10px] text-white/20 select-text font-mono">
-          <p>GID: {game.id.substring(0, 6)}</p>
-          <p>CID: {game.phase_captain_id ? game.phase_captain_id.substring(0, 6) : 'NULL'}</p>
-          <p>MID: {currentPlayer.id.substring(0, 6)}</p>
-          <p>V: 1.0.1</p>
-        </div>
       </div>
     </div>
   );

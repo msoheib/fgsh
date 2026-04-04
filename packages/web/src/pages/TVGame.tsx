@@ -993,13 +993,13 @@ export const TVGame: React.FC = () => {
                     : 'text-yellow-400'
                 }`}>
                   {getRoundMultiplier(currentRound.round_number, game.round_count) === 3
-                    ? '🔥🔥 نقاط ثلاثية!'
-                    : '🔥 نقاط مضاعفة!'}
+                    ? 'النقاط تربل'
+                    : 'النقاط دبل'}
                 </span>
               </motion.div>
             )}
             <div className="glass rounded-2xl px-6 py-3">
-              <span className="text-2xl font-bold">
+              <span className="text-4xl font-bold">
                 الجولة {stageInfo?.stageNumber ?? 1} / 3 • سؤال {stageInfo?.questionInStage ?? 1} / {stageInfo?.totalQuestionsInStage ?? 1}
               </span>
             </div>
@@ -1037,7 +1037,7 @@ export const TVGame: React.FC = () => {
                   🎭 اكتب كذبة مقنعة!
                 </motion.p>
 
-                <QuestionReveal question={question.question_text} size="tv" showEmoji />
+                <QuestionReveal question={question.question_text} size="tv" />
 
                 <motion.div
                   initial={{ opacity: 0, y: 30 }}

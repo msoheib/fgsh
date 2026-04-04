@@ -69,13 +69,13 @@ const containerVariants: Variants = {
 export const QuestionReveal: React.FC<QuestionRevealProps> = ({
   question,
   className = '',
-  showEmoji = true,
+  showEmoji = false,
   size = 'normal',
 }) => {
   const sizeClasses = {
     normal: 'text-lg sm:text-2xl',
     large: 'text-2xl sm:text-3xl md:text-4xl',
-    tv: 'text-3xl sm:text-4xl md:text-5xl lg:text-6xl',
+    tv: 'text-2xl sm:text-3xl md:text-4xl lg:text-5xl',
   };
 
   const emojiSize = {
@@ -129,7 +129,7 @@ export const TVQuestionReveal: React.FC<{ question: string }> = ({ question }) =
       <QuestionReveal
         question={question}
         size="tv"
-        showEmoji={true}
+        showEmoji={false}
       />
     </motion.div>
   );
