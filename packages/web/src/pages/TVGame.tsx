@@ -203,6 +203,21 @@ function getStageInfo(roundNumber: number): { stageNumber: number; questionInSta
   return { stageNumber: 3, questionInStage: 1, totalQuestionsInStage: 1 };
 }
 
+function getStagePointsSummary(roundNumber: number, roundCount: number): {
+  multiplier: number;
+  fooledPoints: number;
+  truthPoints: number;
+  label: string;
+} {
+  const multiplier = getRoundMultiplier(roundNumber, roundCount);
+  return {
+    multiplier,
+    fooledPoints: GAME_CONFIG.POINTS.PER_FOOLED_PLAYER * multiplier,
+    truthPoints: GAME_CONFIG.POINTS.CORRECT_ANSWER * multiplier,
+    label: multiplier === 3 ? 'النقاط تربل' : multiplier === 2 ? 'النقاط دبل' : 'النقاط الأساسية',
+  };
+}
+
 const AnswerRevealCard: React.FC<{ answer: RevealAnswer; isActive: boolean }> = ({
   answer,
   isActive,
@@ -351,6 +366,8 @@ export const TVGame: React.FC = () => {
   const confetti = useConfetti();
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
   const displayRoundNumber = categoryPromptRoundNumber ?? Math.max(game?.current_round ?? 0, 1);
+  const categoryStageInfo = getStageInfo(displayRoundNumber);
+  const categoryStagePoints = game ? getStagePointsSummary(displayRoundNumber, game.round_count) : null;
   const isBetweenRounds = !!game
     && game.status === 'playing'
     && (
@@ -910,10 +927,30 @@ export const TVGame: React.FC = () => {
         {audioUnlockOverlay}
         <div className="relative z-10 w-full max-w-6xl mx-auto text-center glass rounded-3xl px-10 py-8 border border-white/20">
           <p className="text-xl text-white/70 mb-2">
-            الجولة {displayRoundNumber} / {game.round_count}
+            الجولة {categoryStageInfo.stageNumber} / 3
           </p>
-          <p className="text-4xl font-bold mb-3">القائد يختار فئة السؤال</p>
-          <p className="text-2xl text-white/70">الوقت المتبقي: {categoryWaitSecondsLeft} ثانية</p>
+          <p className="text-5xl font-bold mb-2">القائد يختار فئة السؤال</p>
+          <p className="text-2xl text-white/70">{categoryStagePoints?.label}</p>
+          <p className="text-2xl text-white/70 mt-2">الوقت المتبقي: {categoryWaitSecondsLeft} ثانية</p>
+
+          {categoryStagePoints && (
+            <div className="mt-8 mx-auto max-w-3xl rounded-[2rem] border border-white/15 bg-white/5 px-8 py-6 shadow-[0_0_40px_rgba(217,70,239,0.12)]">
+              <div className="inline-flex items-center rounded-full border border-fuchsia-400/30 bg-fuchsia-500/10 px-8 py-3 text-4xl font-black text-white">
+                الجولة {categoryStageInfo.stageNumber}
+              </div>
+              <div className="mt-8 space-y-4 text-right">
+                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/10 px-6 py-5">
+                  <span className="text-3xl text-white/85">لمن خدعتهم</span>
+                  <span className="text-5xl font-black text-pink-400">{categoryStagePoints.fooledPoints}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-black/10 px-6 py-5">
+                  <span className="text-3xl text-white/85">لاكتشاف الحقيقة</span>
+                  <span className="text-5xl font-black text-cyan-300">{categoryStagePoints.truthPoints}</span>
+                </div>
+              </div>
+            </div>
+          )}
+
           {categoryOptions.length > 0 ? (
             <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl mx-auto">
               {categoryOptions.map((category) => {

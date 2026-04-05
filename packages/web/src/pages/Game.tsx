@@ -1,6 +1,6 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useGameStore, useRoundStore, GAME_CONFIG } from '@fakash/shared';
+import { useGameStore, useRoundStore, GAME_CONFIG, getRoundMultiplier } from '@fakash/shared';
 
 interface CombinedAnswerOption {
   id: string;
@@ -31,6 +31,21 @@ function getStageInfo(roundNumber: number): { stageNumber: number; questionInSta
     return { stageNumber: 2, questionInStage: roundNumber - 3, totalQuestionsInStage: 3 };
   }
   return { stageNumber: 3, questionInStage: 1, totalQuestionsInStage: 1 };
+}
+
+function getStagePointsSummary(roundNumber: number, roundCount: number): {
+  multiplier: number;
+  fooledPoints: number;
+  truthPoints: number;
+  label: string;
+} {
+  const multiplier = getRoundMultiplier(roundNumber, roundCount);
+  return {
+    multiplier,
+    fooledPoints: GAME_CONFIG.POINTS.PER_FOOLED_PLAYER * multiplier,
+    truthPoints: GAME_CONFIG.POINTS.CORRECT_ANSWER * multiplier,
+    label: multiplier === 3 ? 'النقاط تربل' : multiplier === 2 ? 'النقاط دبل' : 'النقاط الأساسية',
+  };
 }
 
 function normalizeAnswerKey(value: string): string {
@@ -132,6 +147,12 @@ export const Game: React.FC = () => {
   );
   const reviewLockSeconds = Math.max(GAME_CONFIG.RESULTS_DISPLAY_DURATION, revealEstimateSeconds);
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
+  const currentRoundPoints = currentRound && game
+    ? getStagePointsSummary(currentRound.round_number, game.round_count)
+    : null;
+  const categoryStageRoundNumber = categoryPrompt?.roundNumber || game?.current_round || 1;
+  const categoryStageInfo = getStageInfo(categoryStageRoundNumber);
+  const categoryStagePoints = game ? getStagePointsSummary(categoryStageRoundNumber, game.round_count) : null;
   const isVotingOpen = roundStatus === 'voting' && timerActive && timeRemaining > 0;
   const isWaitingForNextRound =
     !!game &&
@@ -669,9 +690,26 @@ export const Game: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
         <div className="bg-white/10 backdrop-blur rounded-2xl p-5 max-w-sm w-full">
-          <p className="text-sm text-white/70 text-center mb-2">اختيار الفئة - الجولة {categoryPrompt.roundNumber}/7</p>
-          <p className="text-lg font-bold text-center mb-1">اختر فئة السؤال</p>
+          <p className="text-sm text-white/70 text-center mb-2">اختيار الفئة - الجولة {categoryStageInfo.stageNumber}/3</p>
+          <p className="text-xl font-bold text-center mb-1">اختر فئة السؤال</p>
+          <p className="text-sm text-white/60 text-center mb-2">{categoryStagePoints?.label}</p>
           <p className="text-xs text-white/60 text-center mb-4">ينتهي الاختيار تلقائياً خلال {categorySecondsLeft} ثوانٍ</p>
+
+          {categoryStagePoints && (
+            <div className="mb-4 rounded-2xl border border-white/10 bg-black/10 p-4">
+              <div className="mb-3 text-center text-lg font-bold">الجولة {categoryStageInfo.stageNumber}</div>
+              <div className="space-y-2 text-sm">
+                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
+                  <span>لمن خدعتهم</span>
+                  <span className="text-lg font-black text-pink-400">{categoryStagePoints.fooledPoints}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
+                  <span>لاكتشاف الحقيقة</span>
+                  <span className="text-lg font-black text-cyan-300">{categoryStagePoints.truthPoints}</span>
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2 mb-4 max-h-56 overflow-y-auto">
             {categoryPrompt.options.map((category) => (
@@ -710,10 +748,25 @@ export const Game: React.FC = () => {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
         <div className="bg-white/10 backdrop-blur rounded-2xl p-6 max-w-sm w-full text-center">
-          <p className="text-sm text-white/70 mb-2">اختيار الفئة - الجولة {game.current_round}/7</p>
+          <p className="text-sm text-white/70 mb-2">اختيار الفئة - الجولة {categoryStageInfo.stageNumber}/3</p>
           <p className="text-lg font-bold mb-1">
             {canControlFlow ? 'جاري تجهيز اختيار الفئة' : 'القائد يختار فئة السؤال'}
           </p>
+          <p className="text-sm text-white/60 mb-4">{categoryStagePoints?.label}</p>
+          {categoryStagePoints && (
+            <div className="mb-4 rounded-2xl border border-white/10 bg-black/10 p-4 text-sm">
+              <div className="space-y-2">
+                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
+                  <span>لمن خدعتهم</span>
+                  <span className="text-lg font-black text-pink-400">{categoryStagePoints.fooledPoints}</span>
+                </div>
+                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
+                  <span>لاكتشاف الحقيقة</span>
+                  <span className="text-lg font-black text-cyan-300">{categoryStagePoints.truthPoints}</span>
+                </div>
+              </div>
+            </div>
+          )}
           <p className="text-xs text-white/60">
             الوقت المتوقع: {categoryWaitSecondsLeft} ثانية
           </p>
@@ -829,11 +882,22 @@ export const Game: React.FC = () => {
         مغادرة
       </button>
 
-      {/* Minimal header */}
-      <p className="text-xs text-white/40 mb-3">
-        الجولة {stageInfo?.stageNumber ?? 1}/3 • سؤال {stageInfo?.questionInStage ?? 1}/{stageInfo?.totalQuestionsInStage ?? 1}
-        {canControlFlow && ' • 👑'}
-      </p>
+      <div className="mb-4 flex flex-col items-center gap-2">
+        <div className="rounded-2xl border border-white/10 bg-white/10 px-5 py-3 text-center shadow-[0_0_24px_rgba(34,211,238,0.08)]">
+          <p className="text-base sm:text-lg font-bold text-white">
+            الجولة {stageInfo?.stageNumber ?? 1} / 3 • سؤال {stageInfo?.questionInStage ?? 1} / {stageInfo?.totalQuestionsInStage ?? 1}
+          </p>
+        </div>
+        {currentRoundPoints && currentRoundPoints.multiplier > 1 && (
+          <div className={`rounded-full px-4 py-1.5 text-sm font-black ${
+            currentRoundPoints.multiplier === 3
+              ? 'bg-red-500/20 text-red-300 border border-red-400/30'
+              : 'bg-yellow-400/20 text-yellow-200 border border-yellow-300/30'
+          }`}>
+            {currentRoundPoints.label}
+          </div>
+        )}
+      </div>
 
       <div className="bg-white/10 backdrop-blur rounded-2xl p-4 max-w-xs w-full">
         {/* ANSWERING PHASE */}
