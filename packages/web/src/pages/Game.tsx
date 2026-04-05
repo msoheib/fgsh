@@ -152,7 +152,6 @@ export const Game: React.FC = () => {
     : null;
   const categoryStageRoundNumber = categoryPrompt?.roundNumber || game?.current_round || 1;
   const categoryStageInfo = getStageInfo(categoryStageRoundNumber);
-  const categoryStagePoints = game ? getStagePointsSummary(categoryStageRoundNumber, game.round_count) : null;
   const isVotingOpen = roundStatus === 'voting' && timerActive && timeRemaining > 0;
   const isWaitingForNextRound =
     !!game &&
@@ -692,24 +691,7 @@ export const Game: React.FC = () => {
         <div className="bg-white/10 backdrop-blur rounded-2xl p-5 max-w-sm w-full">
           <p className="text-sm text-white/70 text-center mb-2">اختيار الفئة - الجولة {categoryStageInfo.stageNumber}/3</p>
           <p className="text-xl font-bold text-center mb-1">اختر فئة السؤال</p>
-          <p className="text-sm text-white/60 text-center mb-2">{categoryStagePoints?.label}</p>
           <p className="text-xs text-white/60 text-center mb-4">ينتهي الاختيار تلقائياً خلال {categorySecondsLeft} ثوانٍ</p>
-
-          {categoryStagePoints && (
-            <div className="mb-4 rounded-2xl border border-white/10 bg-black/10 p-4">
-              <div className="mb-3 text-center text-lg font-bold">الجولة {categoryStageInfo.stageNumber}</div>
-              <div className="space-y-2 text-sm">
-                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
-                  <span>لمن خدعتهم</span>
-                  <span className="text-lg font-black text-pink-400">{categoryStagePoints.fooledPoints}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
-                  <span>لاكتشاف الحقيقة</span>
-                  <span className="text-lg font-black text-cyan-300">{categoryStagePoints.truthPoints}</span>
-                </div>
-              </div>
-            </div>
-          )}
 
           <div className="space-y-2 mb-4 max-h-56 overflow-y-auto">
             {categoryPrompt.options.map((category) => (
@@ -752,21 +734,6 @@ export const Game: React.FC = () => {
           <p className="text-lg font-bold mb-1">
             {canControlFlow ? 'جاري تجهيز اختيار الفئة' : 'القائد يختار فئة السؤال'}
           </p>
-          <p className="text-sm text-white/60 mb-4">{categoryStagePoints?.label}</p>
-          {categoryStagePoints && (
-            <div className="mb-4 rounded-2xl border border-white/10 bg-black/10 p-4 text-sm">
-              <div className="space-y-2">
-                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
-                  <span>لمن خدعتهم</span>
-                  <span className="text-lg font-black text-pink-400">{categoryStagePoints.fooledPoints}</span>
-                </div>
-                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2">
-                  <span>لاكتشاف الحقيقة</span>
-                  <span className="text-lg font-black text-cyan-300">{categoryStagePoints.truthPoints}</span>
-                </div>
-              </div>
-            </div>
-          )}
           <p className="text-xs text-white/60">
             الوقت المتوقع: {categoryWaitSecondsLeft} ثانية
           </p>
