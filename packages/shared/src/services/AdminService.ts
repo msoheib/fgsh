@@ -1,6 +1,11 @@
 import { getSupabase } from './supabase';
 import type { Question, QuestionLie } from '../types';
 import type { GameAudioCueKey } from '../constants/audioCues';
+import {
+  isDisallowedQuestionCategory,
+  normalizeQuestionCategory,
+  validateQuestionCategory,
+} from '../utils/validation';
 
 export interface AdminUser {
   id: string;
@@ -95,12 +100,17 @@ export const AdminService = {
     let query = supabase
       .from('questions')
       .select('*')
+      .is('archived_at', null)
       .order('created_at', { ascending: false });
 
     if (filters?.search) {
       query = query.ilike('question_text', `%${filters.search}%`);
     }
     if (filters?.category) {
+      if (isDisallowedQuestionCategory(filters.category)) {
+        return [];
+      }
+
       query = query.eq('category', filters.category);
     }
     if (filters?.difficulty) {
@@ -117,7 +127,7 @@ export const AdminService = {
       throw error;
     }
 
-    return data || [];
+    return (data || []).filter((question) => !isDisallowedQuestionCategory(question.category));
   },
 
   /**
@@ -129,6 +139,7 @@ export const AdminService = {
     const { data, error } = await supabase
       .from('questions')
       .select('category')
+      .is('archived_at', null)
       .not('category', 'is', null);
 
     if (error) {
@@ -137,7 +148,13 @@ export const AdminService = {
     }
 
     // Get unique categories
-    const categories = [...new Set(data?.map(q => q.category).filter(Boolean))] as string[];
+    const categories = [
+      ...new Set(
+        data
+          ?.map((q) => normalizeQuestionCategory(q.category))
+          .filter((category): category is string => !!category && !isDisallowedQuestionCategory(category))
+      ),
+    ] as string[];
     return categories.sort();
   },
 
@@ -146,13 +163,15 @@ export const AdminService = {
    */
   async createQuestion(input: QuestionInput): Promise<Question> {
     const supabase = getSupabase();
+    validateQuestionCategory(input.category);
+    const normalizedCategory = normalizeQuestionCategory(input.category);
     
     const { data, error } = await supabase
       .from('questions')
       .insert({
         question_text: input.question_text,
         correct_answer: input.correct_answer,
-        category: input.category || null,
+        category: normalizedCategory,
         difficulty: input.difficulty,
         language: input.language,
       })
@@ -172,13 +191,20 @@ export const AdminService = {
    */
   async updateQuestion(id: string, input: Partial<QuestionInput>): Promise<Question> {
     const supabase = getSupabase();
+    const normalizedCategory = input.category !== undefined
+      ? normalizeQuestionCategory(input.category)
+      : undefined;
+
+    if (input.category !== undefined) {
+      validateQuestionCategory(normalizedCategory);
+    }
     
     const { data, error } = await supabase
       .from('questions')
       .update({
         ...(input.question_text && { question_text: input.question_text }),
         ...(input.correct_answer && { correct_answer: input.correct_answer }),
-        ...(input.category !== undefined && { category: input.category || null }),
+        ...(input.category !== undefined && { category: normalizedCategory }),
         ...(input.difficulty && { difficulty: input.difficulty }),
         ...(input.language && { language: input.language }),
       })
@@ -202,8 +228,11 @@ export const AdminService = {
     
     const { error } = await supabase
       .from('questions')
-      .delete()
-      .eq('id', id);
+      .update({
+        archived_at: new Date().toISOString(),
+      })
+      .eq('id', id)
+      .is('archived_at', null);
 
     if (error) {
       console.error('Failed to delete question:', error);
@@ -216,10 +245,18 @@ export const AdminService = {
    */
   async bulkImportQuestions(questions: QuestionInput[]): Promise<{ success: number; failed: number }> {
     const supabase = getSupabase();
+    const normalizedQuestions = questions.map((question) => {
+      validateQuestionCategory(question.category);
+
+      return {
+        ...question,
+        category: normalizeQuestionCategory(question.category) ?? undefined,
+      };
+    });
     
     const { data, error } = await supabase
       .from('questions')
-      .insert(questions.map(q => ({
+      .insert(normalizedQuestions.map(q => ({
         question_text: q.question_text,
         correct_answer: q.correct_answer,
         category: q.category || null,
@@ -248,11 +285,17 @@ export const AdminService = {
     difficulty: 'easy' | 'medium' | 'hard';
   }): Promise<{ questions: Array<{ question_text: string; correct_answer: string }>; provider: string }> {
     const supabase = getSupabase();
+    validateQuestionCategory(params.category);
+    const normalizedCategory = normalizeQuestionCategory(params.category);
+
+    if (!normalizedCategory) {
+      throw new Error('يرجى كتابة الفئة');
+    }
 
     const { data, error } = await supabase.functions.invoke('generate-content', {
       body: {
         action: 'generate-questions',
-        category: params.category,
+        category: normalizedCategory,
         count: params.count,
         difficulty: params.difficulty,
       },

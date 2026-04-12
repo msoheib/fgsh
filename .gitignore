@@ -56,3 +56,7 @@ web-build/
 # Temporary
 .tmp/
 temp/
+
+# Tutorial Documentation
+ARCHITECTURE_TUTORIAL.md
+CODING_MOTIFS_TUTORIAL.md

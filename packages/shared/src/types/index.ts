@@ -35,6 +35,7 @@ export interface Question {
   difficulty: 'easy' | 'medium' | 'hard';
   language: 'ar' | 'en';
   source?: 'manual' | 'ai';
+  archived_at: string | null;
   created_at: string;
 }
 
@@ -56,6 +57,7 @@ export interface GameRound {
   timer_starts_at: string | null;
   timer_duration: number;
   created_at: string;
+  updated_at?: string;
   question?: Question;
 }
 

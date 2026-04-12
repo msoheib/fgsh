@@ -195,10 +195,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           console.log('🎯 Phase captain status:', { isPhaseCaptain, currentPlayerId: currentPlayer?.id, captainId: updatedGame.phase_captain_id });
           set({ game: updatedGame, isPhaseCaptain });
 
-          // Clear session when game finishes (don't rehydrate finished games)
           if (updatedGame.status === 'finished') {
-            console.log('🏁 Game finished, clearing session to prevent rehydration');
-            clearGameSession();
+            console.log('🏁 Game finished, keeping session active for replay.');
           }
         },
         onPlayerJoined: (newPlayer) => {
@@ -496,10 +494,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           });
           set({ game: updatedGame });
 
-          // Clear session when game finishes
           if (updatedGame.status === 'finished') {
-            console.log('🏁 Game finished, clearing session');
-            clearGameSession();
+            console.log('🏁 Display game finished, keeping session active for replay.');
           }
         },
         onPlayerJoined: async (newPlayer) => {
@@ -741,10 +737,8 @@ export const useGameStore = create<GameState>((set, get) => ({
           console.log('🎯 Phase captain status:', { isPhaseCaptain, currentPlayerId: currentPlayer?.id, captainId: updatedGame.phase_captain_id });
           set({ game: updatedGame, isPhaseCaptain });
 
-          // Clear session when game finishes (don't rehydrate finished games)
           if (updatedGame.status === 'finished') {
-            console.log('🏁 Game finished, clearing session to prevent rehydration');
-            clearGameSession();
+            console.log('🏁 Game finished, keeping session active for replay.');
           }
         },
         onPlayerJoined: (newPlayer) => {
@@ -1164,13 +1158,6 @@ export const useGameStore = create<GameState>((set, get) => ({
         return false;
       }
 
-      if (game.status === 'finished') {
-        console.log('[rehydrate] Game is finished, clearing stale session');
-        clearGameSession();
-        clearRehydratedState();
-        return false;
-      }
-
       let players = await GameService.getGamePlayers(game.id);
       const isDisplaySession = session.isDisplayMode || !session.playerId;
 
@@ -1193,8 +1180,7 @@ export const useGameStore = create<GameState>((set, get) => ({
             set({ game: updatedGame });
 
             if (updatedGame.status === 'finished') {
-              console.log('[rehydrate] Display game finished; clearing session');
-              clearGameSession();
+              console.log('[rehydrate] Display game finished; keeping session active for replay.');
             }
           },
           onPlayerJoined: (newPlayer) => {
@@ -1386,8 +1372,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           set({ game: updatedGame, isPhaseCaptain });
 
           if (updatedGame.status === 'finished') {
-            console.log('🏁 Game finished, clearing session to prevent rehydration');
-            clearGameSession();
+            console.log('🏁 Game finished, keeping session active for replay.');
           }
         },
         onPlayerJoined: (newPlayer) => {

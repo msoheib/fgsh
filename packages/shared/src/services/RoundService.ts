@@ -11,6 +11,38 @@ import { validateAnswer, sanitizeText } from '../utils/validation';
 import { getGameSession } from '../utils/sessionStorage';
 
 export class RoundService {
+  static getRoundStatusRank(status: string): number {
+    switch (status) {
+      case 'completed':
+        return 3;
+      case 'voting':
+        return 2;
+      case 'answering':
+        return 1;
+      default:
+        return 0;
+    }
+  }
+
+  static pickMostAuthoritativeRound(rounds: GameRound[]): GameRound | null {
+    if (rounds.length === 0) return null;
+
+    const sorted = [...rounds].sort((a, b) => {
+      const statusDelta = this.getRoundStatusRank(b.status) - this.getRoundStatusRank(a.status);
+      if (statusDelta !== 0) return statusDelta;
+
+      const aUpdated = a.updated_at ? new Date(a.updated_at).getTime() : 0;
+      const bUpdated = b.updated_at ? new Date(b.updated_at).getTime() : 0;
+      if (bUpdated !== aUpdated) return bUpdated - aUpdated;
+
+      const aCreated = a.created_at ? new Date(a.created_at).getTime() : 0;
+      const bCreated = b.created_at ? new Date(b.created_at).getTime() : 0;
+      return bCreated - aCreated;
+    });
+
+    return sorted[0] || null;
+  }
+
   private static getPlayerSession(playerId?: string, gameId?: string): {
     gameId: string;
     playerId: string;
@@ -43,6 +75,49 @@ export class RoundService {
   private static getAnswerGroupKey(value: string, isCorrect: boolean): string {
     // Keep truth and lies separate, even when text is identical.
     return `${isCorrect ? 'truth' : 'lie'}:${this.normalizeAnswerKey(value)}`;
+  }
+
+  private static shuffleAnswers<T>(items: T[]): T[] {
+    return [...items].sort(() => Math.random() - 0.5);
+  }
+
+  private static async fetchRoundAnswers(roundId: string): Promise<PlayerAnswer[]> {
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('player_answers')
+      .select('*, player:players(*)')
+      .eq('round_id', roundId);
+
+    if (error) {
+      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+    }
+
+    return data || [];
+  }
+
+  static async loadVotingAnswersWithRetry(
+    roundId: string,
+    maxRetries: number = 2,
+    retryDelayMs: number = 500
+  ): Promise<PlayerAnswer[]> {
+    let lastAnswers: PlayerAnswer[] = [];
+
+    for (let attempt = 0; attempt <= maxRetries; attempt += 1) {
+      const answers = await this.fetchRoundAnswers(roundId);
+      lastAnswers = answers;
+
+      const hasSystemTruth = answers.some((answer) => answer.is_correct && !answer.player_id);
+      if (answers.length > 0 && hasSystemTruth) {
+        return this.shuffleAnswers(answers);
+      }
+
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs));
+      }
+    }
+
+    return this.shuffleAnswers(lastAnswers);
   }
 
   /**
@@ -152,30 +227,7 @@ export class RoundService {
    * Get all answers for a round (shuffled for voting)
    */
   static async getRoundAnswers(roundId: string): Promise<PlayerAnswer[]> {
-    const supabase = getSupabase();
-
-    const { data, error } = await supabase
-      .from('player_answers')
-      .select('*, player:players(*)')
-      .eq('round_id', roundId);
-
-    if (error) {
-      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
-    }
-
-    const answers = data || [];
-    const truthKeys = new Set(
-      answers
-        .filter((answer) => !!answer.is_correct)
-        .map((answer) => this.normalizeAnswerKey(answer.answer_text))
-    );
-    const filteredAnswers = answers.filter((answer) => (
-      answer.is_correct || !truthKeys.has(this.normalizeAnswerKey(answer.answer_text))
-    ));
-
-    // Shuffle answers for voting
-    const shuffled = filteredAnswers.sort(() => Math.random() - 0.5);
-    return shuffled;
+    return this.loadVotingAnswersWithRetry(roundId);
   }
 
   /**
@@ -244,6 +296,8 @@ export class RoundService {
       isSystemLie: boolean;
       authorId: string | null;
       authorName: string | null;
+      authorNames: string[];
+      matchingLieAuthorNames: string[];
       voters: Array<{ id: string; name: string }>;
       voteCount: number;
     }>;
@@ -270,6 +324,13 @@ export class RoundService {
       throw new GameError(ErrorType.CONNECTION_LOST, votesError.message);
     }
 
+    const normalize = (value: string) => value.trim().toLocaleLowerCase();
+    const truthAnswerKeys = new Set(
+      (answers || [])
+        .filter((answer) => !!answer.is_correct)
+        .map((answer) => normalize(answer.answer_text))
+    );
+
     // Group votes by answer_id
     const votesByAnswer = new Map<string, Array<{ id: string; name: string }>>();
     for (const vote of votes || []) {
@@ -285,16 +346,6 @@ export class RoundService {
       }
     }
 
-    const normalizedTruths = new Set(
-      (answers || [])
-        .filter((ans) => !!ans.is_correct)
-        .map((ans) => this.normalizeAnswerKey(ans.answer_text))
-    );
-
-    const effectiveAnswers = (answers || []).filter((ans) => (
-      ans.is_correct || !normalizedTruths.has(this.normalizeAnswerKey(ans.answer_text))
-    ));
-
     // Build grouped reveal data (same text answers are shown once)
     const grouped = new Map<string, {
       id: string;
@@ -306,7 +357,7 @@ export class RoundService {
       answerIds: string[];
     }>();
 
-    for (const ans of effectiveAnswers) {
+    for (const ans of (answers || [])) {
       const key = this.getAnswerGroupKey(ans.answer_text, !!ans.is_correct);
       if (!grouped.has(key)) {
         grouped.set(key, {
@@ -323,6 +374,9 @@ export class RoundService {
       const group = grouped.get(key)!;
       group.answerIds.push(ans.id);
       group.isCorrect = group.isCorrect || ans.is_correct;
+      if (ans.is_correct && !ans.player_id) {
+        group.id = ans.id;
+      }
 
       if (ans.player_id) {
         group.authorIds.add(ans.player_id);
@@ -337,9 +391,27 @@ export class RoundService {
       }
     }
 
-    const revealAnswers = Array.from(grouped.values()).map((group) => {
+    const revealAnswers = Array.from(grouped.entries()).flatMap(([, group]) => {
+      if (!group.isCorrect && truthAnswerKeys.has(normalize(group.text))) {
+        return [];
+      }
+
       const isSystemLie = !group.isCorrect && group.authorIds.size === 0;
-      return {
+      const authorNames = Array.from(group.authorNames);
+      const matchingLieAuthorNames = group.isCorrect
+        ? Array.from(grouped.get(`lie:${normalize(group.text)}`)?.authorNames || [])
+        : [];
+
+      if (group.isCorrect) {
+        const matchingLieGroup = grouped.get(`lie:${normalize(group.text)}`);
+        if (matchingLieGroup) {
+          for (const voter of matchingLieGroup.voters.values()) {
+            group.voters.set(voter.id, voter);
+          }
+        }
+      }
+
+      return [{
         id: group.id,
         text: group.text,
         isCorrect: group.isCorrect,
@@ -349,10 +421,12 @@ export class RoundService {
           ? null
           : isSystemLie
             ? 'النظام'
-            : Array.from(group.authorNames).join(' + '),
+            : authorNames.join(' + '),
+        authorNames,
+        matchingLieAuthorNames,
         voters: Array.from(group.voters.values()),
         voteCount: group.voters.size,
-      };
+      }];
     });
 
     // Sort: lies with votes first, then correct answer last
@@ -399,19 +473,91 @@ export class RoundService {
       return null;
     }
 
-    const { data: round, error: roundError } = await supabase
+    const { data: rounds, error: roundError } = await supabase
       .from('game_rounds')
       .select('*, question:questions(*)')
       .eq('game_id', gameId)
       .eq('round_number', data.current_round)
-      .maybeSingle();
+      .order('updated_at', { ascending: false })
+      .order('created_at', { ascending: false });
 
-    if (roundError && roundError.code !== 'PGRST116') {
-      // If not found, fall through to return null
+    if (roundError) {
       throw roundError;
     }
 
-    return round;
+    return this.pickMostAuthoritativeRound((rounds || []) as GameRound[]);
+  }
+
+  static async recoverRoundFromServer(
+    gameId: string,
+    playerId: string
+  ): Promise<{
+    round: GameRound;
+    question: Question;
+    answers: PlayerAnswer[];
+    myAnswer: string | null;
+    hasSubmittedAnswer: boolean;
+    myVote: string | null;
+    hasSubmittedVote: boolean;
+    timeRemaining: number;
+    timerActive: boolean;
+  } | null> {
+    const supabase = getSupabase();
+    this.getPlayerSession(playerId, gameId);
+
+    const round = await this.getCurrentRound(gameId);
+    if (!round) return null;
+
+    const { data: q, error: questionError } = await supabase
+      .from('questions')
+      .select('*')
+      .eq('id', round.question_id)
+      .single();
+
+    if (questionError || !q) {
+      throw new GameError(
+        ErrorType.CONNECTION_LOST,
+        questionError?.message || 'Failed to load round question'
+      );
+    }
+
+    const answers = round.status === 'voting' || round.status === 'completed'
+      ? await this.loadVotingAnswersWithRetry(round.id)
+      : [];
+
+    const startTime = round.timer_starts_at
+      ? new Date(round.timer_starts_at).getTime()
+      : Date.now();
+    const elapsed = Math.floor((Date.now() - startTime) / 1000);
+    const rawRemaining = Math.max(0, (round.timer_duration || 0) - elapsed);
+    const timeRemaining = round.status === 'completed' ? 0 : rawRemaining;
+    const timerActive = round.status !== 'completed' && timeRemaining > 0;
+
+    const { data: playerAnswer } = await supabase
+      .from('player_answers')
+      .select('answer_text')
+      .eq('round_id', round.id)
+      .eq('player_id', playerId)
+      .maybeSingle();
+
+    const { data: playerVote } = await supabase
+      .from('votes')
+      .select('answer_id')
+      .eq('round_id', round.id)
+      .eq('voter_id', playerId)
+      .maybeSingle();
+
+    return {
+      round,
+      question: q as Question,
+      answers,
+      myAnswer: playerAnswer?.answer_text || null,
+      hasSubmittedAnswer: !!playerAnswer,
+      myVote: playerVote?.answer_id || null,
+      hasSubmittedVote: !!playerVote,
+      timeRemaining,
+      timerActive,
+    };
   }
 }
 

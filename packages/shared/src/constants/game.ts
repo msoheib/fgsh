@@ -18,7 +18,7 @@ export const GAME_CONFIG = {
   CATEGORY_SELECTION_TIMER: 20,
 
   // Timer durations (seconds)
-  ANSWER_TIMER: 30,
+  ANSWER_TIMER: 60,
   VOTING_TIMER: 20,
   RESULTS_DISPLAY_DURATION: 30,
   // TV reveal pacing (milliseconds)

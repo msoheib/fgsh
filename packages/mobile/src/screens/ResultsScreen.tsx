@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, ScrollView } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
-import { useGameStore, GameService } from '@fakash/shared';
+import { useGameStore, GameService, RealtimeService } from '@fakash/shared';
 
 // Player colors matching the design
 const PLAYER_COLORS = ['#8b5cf6', '#3b82f6', '#06b6d4', '#ec4899'];
@@ -9,6 +9,7 @@ const PLAYER_COLORS = ['#8b5cf6', '#3b82f6', '#06b6d4', '#ec4899'];
 export const ResultsScreen: React.FC = () => {
   const navigation = useNavigation();
   const { game, players, isPhaseCaptain } = useGameStore();
+  const [replayCode, setReplayCode] = React.useState<string | null>(null);
 
   if (!game) {
     return (
@@ -34,6 +35,20 @@ export const ResultsScreen: React.FC = () => {
       }
     };
     fetchScores();
+  }, [game?.id]);
+
+  useEffect(() => {
+    if (!game?.id) return;
+
+    return RealtimeService.listenForBroadcastEvent<{ newGameCode?: string }>(
+      game.id,
+      'replay_game',
+      (payload) => {
+        if (payload?.newGameCode) {
+          setReplayCode(payload.newGameCode);
+        }
+      }
+    );
   }, [game?.id]);
 
   const handleNextQuestion = async () => {
@@ -110,6 +125,12 @@ export const ResultsScreen: React.FC = () => {
         {/* Final actions when game is finished */}
         {isGameFinished && (
           <View style={styles.finalActions}>
+            {replayCode && (
+              <View style={styles.replayNotice}>
+                <Text style={styles.replayNoticeTitle}>تم إنشاء لعبة جديدة</Text>
+                <Text style={styles.replayNoticeText}>الكود الجديد: {replayCode}</Text>
+              </View>
+            )}
             <TouchableOpacity
               style={[styles.nextButton, styles.secondaryButton]}
               onPress={handleCreateNew}
@@ -229,6 +250,26 @@ const styles = StyleSheet.create({
   },
   secondaryButton: {
     backgroundColor: '#4b5563',
+  },
+  replayNotice: {
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: 'rgba(34, 211, 238, 0.35)',
+    backgroundColor: 'rgba(6, 182, 212, 0.12)',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+  },
+  replayNoticeTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: '#ffffff',
+    textAlign: 'center',
+    marginBottom: 6,
+  },
+  replayNoticeText: {
+    fontSize: 15,
+    color: '#dbeafe',
+    textAlign: 'center',
   },
   error: {
     color: '#ef4444',

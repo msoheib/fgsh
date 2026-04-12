@@ -129,7 +129,7 @@ Then:
 
 ### ✅ What's Complete (Backend Foundation)
 
-- **Database Schema**: 6 tables, RLS policies, 40+ Arabic questions
+- **Database Schema**: 6 tables, RLS policies, 29 Arabic questions
 - **Business Logic**: Game creation, joining, rounds, scoring
 - **Real-time Events**: WebSocket subscriptions for live multiplayer
 - **State Management**: Zustand stores for game and round state

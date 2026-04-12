@@ -4,7 +4,9 @@ export type GameAudioCueKey =
   | 'voting_start'
   | 'reveal_start'
   | 'double_points_round_start'
-  | 'triple_points_round_start';
+  | 'triple_points_round_start'
+  | 'background_music'
+  | 'game_end_victory';
 
 export interface GameAudioCueDefinition {
   key: GameAudioCueKey;
@@ -43,5 +45,14 @@ export const GAME_AUDIO_CUE_DEFINITIONS: readonly GameAudioCueDefinition[] = [
     label: 'بداية جولة 3x',
     description: 'يُشغّل عند بدء الجولة النهائية (النقاط الثلاثية).',
   },
+  {
+    key: 'background_music',
+    label: 'موسيقى الخلفية',
+    description: 'يُشغّل كمسار خلفي مستمر على شاشة التلفزيون أثناء سير اللعبة.',
+  },
+  {
+    key: 'game_end_victory',
+    label: 'نهاية اللعبة - فوز',
+    description: 'يُشغّل عند عرض النتائج النهائية وإعلان الفائز.',
+  },
 ] as const;
-

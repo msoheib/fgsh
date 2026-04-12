@@ -583,6 +583,32 @@ export class RealtimeService {
     await this.broadcastEvent(gameId, 'round_transition', { roundId, status });
   }
 
+  static listenForBroadcastEvent<T = unknown>(
+    gameId: string,
+    event: string,
+    handler: (payload: T) => void
+  ): () => void {
+    const supabase = getSupabase();
+    const existingChannel = this.broadcastChannels.get(gameId);
+
+    if (existingChannel) {
+      existingChannel.on('broadcast', { event }, (payload) => {
+        handler(payload.payload as T);
+      });
+      return () => undefined;
+    }
+
+    const channel = supabase.channel(`game-broadcast:${gameId}`);
+    channel.on('broadcast', { event }, (payload) => {
+      handler(payload.payload as T);
+    });
+    channel.subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }
+
   /**
    * Get current presence state for a game
    */

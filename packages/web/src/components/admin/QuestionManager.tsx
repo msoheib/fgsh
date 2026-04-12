@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, type ReactNode } from 'react';
+import { createPortal } from 'react-dom';
 import { AdminService, type Question, type QuestionInput, type QuestionFilters, type QuestionLie } from '@fakash/shared';
 import { GradientButton } from '../GradientButton';
 import { LoadingSpinner } from '../LoadingSpinner';
@@ -23,6 +24,19 @@ const DIFFICULTY_LABELS = {
 const LANGUAGE_LABELS = {
   ar: 'عربي',
   en: 'إنجليزي',
+};
+
+const ModalBackdrop: React.FC<{ children: ReactNode }> = ({ children }) => {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  return createPortal(
+    <div className="fixed inset-0 z-50 flex min-h-[100dvh] items-center justify-center overflow-y-auto bg-black/50 backdrop-blur-sm p-4">
+      {children}
+    </div>,
+    document.body
+  );
 };
 
 export const QuestionManager: React.FC = () => {
@@ -54,6 +68,7 @@ export const QuestionManager: React.FC = () => {
   const [lieCounts, setLieCounts] = useState<Record<string, number>>({});
   const [newLieText, setNewLieText] = useState('');
   const [aiLieCount, setAiLieCount] = useState(3);
+  const anyModalOpen = showModal || !!showDeleteConfirm || showUploadModal || showAIGenerateModal || showLiesModal;
 
   useEffect(() => {
     loadQuestions();
@@ -66,6 +81,30 @@ export const QuestionManager: React.FC = () => {
       loadLieCounts();
     }
   }, [questions]);
+
+  useEffect(() => {
+    if (!anyModalOpen || typeof document === 'undefined') {
+      return;
+    }
+
+    const { body, documentElement } = document;
+    const previousBodyOverflow = body.style.overflow;
+    const previousHtmlOverflow = documentElement.style.overflow;
+    const previousBodyPaddingRight = body.style.paddingRight;
+    const scrollbarWidth = window.innerWidth - document.documentElement.clientWidth;
+
+    body.style.overflow = 'hidden';
+    documentElement.style.overflow = 'hidden';
+    if (scrollbarWidth > 0) {
+      body.style.paddingRight = `${scrollbarWidth}px`;
+    }
+
+    return () => {
+      body.style.overflow = previousBodyOverflow;
+      documentElement.style.overflow = previousHtmlOverflow;
+      body.style.paddingRight = previousBodyPaddingRight;
+    };
+  }, [anyModalOpen]);
 
   const loadQuestions = async () => {
     setLoading(true);
@@ -142,18 +181,19 @@ export const QuestionManager: React.FC = () => {
       loadQuestions();
       loadCategories();
     } catch (error) {
-      toast.error('حدث خطأ أثناء الحفظ');
+      toast.error(error instanceof Error ? error.message : 'حدث خطأ أثناء الحفظ');
     }
   };
 
   const handleDelete = async (id: string) => {
     try {
       await AdminService.deleteQuestion(id);
-      toast.success('تم حذف السؤال بنجاح');
+      toast.success('تمت إزالة السؤال من الجولات الجديدة');
       setShowDeleteConfirm(null);
       loadQuestions();
+      loadCategories();
     } catch (error) {
-      toast.error('حدث خطأ أثناء الحذف');
+      toast.error(error instanceof Error ? error.message : 'حدث خطأ أثناء الحذف');
     }
   };
 
@@ -384,7 +424,7 @@ export const QuestionManager: React.FC = () => {
       loadQuestions();
       loadCategories();
     } catch (error) {
-      toast.error('حدث خطأ أثناء الاستيراد');
+      toast.error(error instanceof Error ? error.message : 'حدث خطأ أثناء الاستيراد');
     }
   };
 
@@ -664,7 +704,7 @@ export const QuestionManager: React.FC = () => {
 
       {/* Add/Edit Modal */}
       {showModal && editingQuestion && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <ModalBackdrop>
           <div className="glass max-w-lg w-full rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-6">
               {editingQuestion.id ? 'تعديل سؤال' : 'إضافة سؤال جديد'}
@@ -762,25 +802,25 @@ export const QuestionManager: React.FC = () => {
               </GradientButton>
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {/* Delete Confirmation Modal */}
       {showDeleteConfirm && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="glass max-w-sm w-full rounded-2xl p-6 text-center">
+        <ModalBackdrop>
+          <div className="glass max-w-sm w-full rounded-2xl p-6 text-center max-h-[90vh] overflow-y-auto">
             <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
               <span className="text-3xl">🗑️</span>
             </div>
             <h3 className="text-xl font-bold mb-2">هل أنت متأكد؟</h3>
-            <p className="text-white/60 mb-6">سيتم حذف هذا السؤال نهائياً ولا يمكن استرجاعه.</p>
+            <p className="text-white/60 mb-6">سيتم إخفاء هذا السؤال من لوحة التحكم والجولات الجديدة مع الاحتفاظ بالسجلات السابقة.</p>
             <div className="flex gap-3">
               <GradientButton
                 variant="cyan"
                 onClick={() => handleDelete(showDeleteConfirm)}
                 className="flex-1"
               >
-                نعم، احذف
+                نعم، أزله
               </GradientButton>
               <GradientButton
                 variant="purple"
@@ -791,12 +831,12 @@ export const QuestionManager: React.FC = () => {
               </GradientButton>
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {/* Upload Preview Modal */}
       {showUploadModal && uploadPreview && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <ModalBackdrop>
           <div className="glass max-w-2xl w-full rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-4">معاينة الأسئلة للاستيراد</h3>
             <p className="text-white/60 mb-4">تم العثور على {uploadPreview.length} سؤال صالح</p>
@@ -831,12 +871,12 @@ export const QuestionManager: React.FC = () => {
               </GradientButton>
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {/* AI Question Generation Modal */}
       {showAIGenerateModal && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <ModalBackdrop>
           <div className="glass max-w-2xl w-full rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-6">إنشاء أسئلة بالذكاء الاصطناعي</h3>
 
@@ -966,12 +1006,12 @@ export const QuestionManager: React.FC = () => {
               </div>
             )}
           </div>
-        </div>
+        </ModalBackdrop>
       )}
 
       {/* Lies Management Modal */}
       {showLiesModal && liesQuestion && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <ModalBackdrop>
           <div className="glass max-w-lg w-full rounded-2xl p-6 max-h-[90vh] overflow-y-auto">
             <h3 className="text-xl font-bold mb-2">الإجابات المضللة</h3>
             <div className="bg-white/5 rounded-xl p-3 mb-4" dir="rtl">
@@ -1073,7 +1113,7 @@ export const QuestionManager: React.FC = () => {
               </GradientButton>
             </div>
           </div>
-        </div>
+        </ModalBackdrop>
       )}
     </div>
   );

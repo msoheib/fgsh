@@ -1,6 +1,8 @@
 import { GAME_CONFIG } from '../constants/game';
 import { ErrorType, GameError } from '../types';
 
+export const DISALLOWED_QUESTION_CATEGORY = 'دين';
+
 /**
  * Validates game code format
  */
@@ -59,6 +61,25 @@ export function validateGameSettings(settings: {
     settings.maxPlayers > GAME_CONFIG.MAX_PLAYERS
   ) {
     throw new GameError(ErrorType.INVALID_CODE, 'Invalid max players');
+  }
+}
+
+export function normalizeQuestionCategory(category?: string | null): string | null {
+  if (typeof category !== 'string') {
+    return null;
+  }
+
+  const normalized = sanitizeText(category);
+  return normalized.length > 0 ? normalized : null;
+}
+
+export function isDisallowedQuestionCategory(category?: string | null): boolean {
+  return normalizeQuestionCategory(category) === DISALLOWED_QUESTION_CATEGORY;
+}
+
+export function validateQuestionCategory(category?: string | null): void {
+  if (isDisallowedQuestionCategory(category)) {
+    throw new Error('فئة الدين غير متاحة. اختر فئة أخرى.');
   }
 }
 

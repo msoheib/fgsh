@@ -228,7 +228,7 @@ import QRCode from 'qrcode.react';
 - [x] Services (Game, Round, Scoring)
 - [x] Real-time subscriptions
 - [x] State management
-- [x] 40+ Arabic questions
+- [x] 29 Arabic questions
 
 ### Frontend ✅
 - [x] All 7 pages

@@ -13,6 +13,43 @@ import { GAME_CONFIG } from '../constants/game';
 import { getGameSession } from '../utils/sessionStorage';
 
 export class GameService {
+  static normalizeForceAdvanceResult(
+    raw: unknown,
+    fallback: { roundId: string; gameId: string }
+  ): {
+    success: boolean;
+    roundId: string;
+    newRoundStatus: string | null;
+    gameId: string;
+    message: string;
+  } {
+    if (typeof raw === 'boolean') {
+      return {
+        success: raw,
+        roundId: fallback.roundId,
+        newRoundStatus: null,
+        gameId: fallback.gameId,
+        message: raw ? 'Round advance acknowledged' : 'Round advance failed',
+      };
+    }
+
+    const row = (Array.isArray(raw) ? raw[0] : raw) as {
+      success?: boolean;
+      round_id?: string;
+      new_round_status?: string;
+      game_id?: string;
+      message?: string;
+    } | null;
+
+    return {
+      success: row?.success ?? true,
+      roundId: row?.round_id || fallback.roundId,
+      newRoundStatus: row?.new_round_status ?? null,
+      gameId: row?.game_id || fallback.gameId,
+      message: row?.message || 'Round advance acknowledged',
+    };
+  }
+
   private static claimCaptainRpcAvailable: boolean | null = null;
 
   private static getPlayerSession(gameId?: string, playerId?: string): {
@@ -537,11 +574,17 @@ export class GameService {
     }
   }
 
-  static async forceAdvanceRound(roundId: string, playerId: string): Promise<void> {
+  static async forceAdvanceRound(roundId: string, playerId: string): Promise<{
+    success: boolean;
+    roundId: string;
+    newRoundStatus: string | null;
+    gameId: string;
+    message: string;
+  }> {
     const supabase = getSupabase();
     const session = this.getPlayerSession(undefined, playerId);
 
-    const { error } = await supabase.rpc('force_advance_round_as_player', {
+    const { data, error } = await supabase.rpc('force_advance_round_as_player', {
       p_round_id: roundId,
       p_player_id: playerId,
       p_player_token: session.playerToken,
@@ -550,6 +593,41 @@ export class GameService {
     if (error) {
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
+
+    return this.normalizeForceAdvanceResult(data, {
+      roundId,
+      gameId: session.gameId,
+    });
+  }
+
+  static async restartFinishedGame(
+    gameId: string,
+    playerId: string
+  ): Promise<Game> {
+    const supabase = getSupabase();
+    const session = this.getPlayerSession(gameId, playerId);
+
+    const { data, error } = await supabase.rpc('restart_finished_game_as_player', {
+      p_game_id: gameId,
+      p_player_id: playerId,
+      p_player_token: session.playerToken,
+    });
+
+    if (error) {
+      throw new GameError(ErrorType.CONNECTION_LOST, error.message);
+    }
+
+    const result = Array.isArray(data) ? data[0] : data;
+    if (result?.success === false) {
+      throw new GameError(ErrorType.CONNECTION_LOST, result.message || 'Failed to restart game');
+    }
+
+    const game = await this.getGame(gameId);
+    if (!game) {
+      throw new GameError(ErrorType.CONNECTION_LOST, 'Failed to load restarted game');
+    }
+
+    return game;
   }
 
   /**

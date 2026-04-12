@@ -1,21 +1,15 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { QRCodeSVG } from 'qrcode.react';
 import { Logo } from '../components/Logo';
 import { PlayerAvatar } from '../components/PlayerAvatar';
 import { EndRoomButton } from '../components/EndRoomButton';
-import { useGameStore, ScoringService } from '@fakash/shared';
 import {
-  AnimatedCard,
-  AnimatedCardContainer,
-  ScoreCounter,
-  RankDisplay,
   ConfettiTrigger,
   celebrationConfetti,
 } from '../components/animations';
+import { useGameStore, useRoundStore, ScoringService, getSupabase } from '@fakash/shared';
 
-// Particle background
 const particles = Array.from({ length: 40 }, (_, i) => ({
   id: i,
   x: Math.random() * 100,
@@ -59,15 +53,12 @@ type TVResultsLayout = {
 };
 
 function getTVResultsLayout(width: number, height: number): TVResultsLayout {
-  // 720p-ish: keep compact cards and fewer rows
   if (height < 800 || width < 1366) {
     return { columns: 2, visiblePlayers: 6, compact: true };
   }
-  // 1080p-ish
   if (height < 1300 || width < 2560) {
     return { columns: 2, visiblePlayers: 8, compact: false };
   }
-  // 1440p/4K-ish
   return { columns: 3, visiblePlayers: 12, compact: false };
 }
 
@@ -77,41 +68,48 @@ export const TVResults: React.FC = () => {
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [showCelebration, setShowCelebration] = useState(false);
   const [layout, setLayout] = useState<TVResultsLayout>({ columns: 2, visiblePlayers: 8, compact: false });
+  const [victoryCueUrl, setVictoryCueUrl] = useState<string | null>(null);
   const gameIdRef = useRef<string | null>(null);
   const hasLoadedRef = useRef(false);
+  const hasPlayedVictoryRef = useRef(false);
 
-  // Capture game ID on mount
   useEffect(() => {
     if (game?.id && !gameIdRef.current) {
       gameIdRef.current = game.id;
     }
   }, [game?.id]);
 
-  // Redirect non-display mode
   useEffect(() => {
     if (!isDisplayMode) {
-      navigate('/results');
-      return;
+      navigate('/results', { replace: true });
     }
   }, [isDisplayMode, navigate]);
 
   useEffect(() => {
-    const gameId = game?.id || gameIdRef.current;
-
-    if (!gameId) {
+    const activeGameId = game?.id || gameIdRef.current;
+    if (!activeGameId) {
       if (!hasLoadedRef.current) {
         navigate('/');
       }
       return;
     }
 
-    // Fetch final leaderboard
+    if (game?.status === 'waiting') {
+      useRoundStore.getState().reset();
+      navigate('/tv/lobby', { replace: true });
+      return;
+    }
+
+    if (game?.status === 'playing') {
+      navigate('/tv/game', { replace: true });
+      return;
+    }
+
     const fetchLeaderboard = async () => {
       try {
         hasLoadedRef.current = true;
-        const data = await ScoringService.getFinalLeaderboard(gameId);
+        const data = await ScoringService.getFinalLeaderboard(activeGameId);
         setLeaderboard(data);
-        // Trigger celebration after leaderboard loads
         setTimeout(() => {
           setShowCelebration(true);
           celebrationConfetti();
@@ -134,11 +132,56 @@ export const TVResults: React.FC = () => {
     return () => window.removeEventListener('resize', updateLayout);
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadVictoryCue = async () => {
+      try {
+        const supabase = getSupabase();
+        const { data, error } = await supabase
+          .from('game_audio_cues')
+          .select('audio_url, is_active')
+          .eq('cue_key', 'game_end_victory')
+          .maybeSingle();
+
+        if (error) {
+          console.warn('Failed to fetch victory cue:', error);
+          return;
+        }
+
+        if (!cancelled && data?.is_active && data.audio_url) {
+          setVictoryCueUrl(data.audio_url);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.warn('Failed to fetch victory cue:', err);
+        }
+      }
+    };
+
+    loadVictoryCue();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!showCelebration || !victoryCueUrl || hasPlayedVictoryRef.current) {
+      return;
+    }
+
+    const audio = new Audio(victoryCueUrl);
+    audio.preload = 'auto';
+    hasPlayedVictoryRef.current = true;
+    void audio.play().catch((err) => {
+      console.warn('Victory cue could not autoplay:', err);
+    });
+  }, [showCelebration, victoryCueUrl]);
+
   if (!isDisplayMode) {
     return null;
   }
 
-  // Loading state
   if (leaderboard.length === 0 && !hasLoadedRef.current) {
     return (
       <div className="h-screen flex items-center justify-center bg-gradient-primary overflow-hidden">
@@ -156,7 +199,6 @@ export const TVResults: React.FC = () => {
   }
 
   const winner = leaderboard[0];
-  const joinUrl = `${window.location.origin}/join`;
   const visibleLeaderboard = leaderboard.slice(0, layout.visiblePlayers);
 
   const getRankGradient = (rank: number) => {
@@ -175,7 +217,6 @@ export const TVResults: React.FC = () => {
   return (
     <div className="h-screen relative overflow-hidden bg-gradient-primary">
       <ParticleBackground />
-
       {showCelebration && <ConfettiTrigger type="celebration" />}
 
       <div className="absolute top-4 left-4 z-20">
@@ -183,12 +224,10 @@ export const TVResults: React.FC = () => {
       </div>
 
       <div className="relative z-10 h-full px-4 py-3 md:px-6 md:py-4 flex flex-col overflow-hidden">
-        {/* Header */}
         <div className="flex items-center justify-center mb-3">
           <Logo size="md" />
         </div>
 
-        {/* Winner Announcement */}
         {winner && (
           <motion.div
             initial={{ scale: 0, opacity: 0 }}
@@ -215,18 +254,12 @@ export const TVResults: React.FC = () => {
                 {winner.player.user_name}
               </p>
             </div>
-            <motion.div
-              initial={{ scale: 0 }}
-              animate={{ scale: 1 }}
-              transition={{ delay: 1 }}
-              className="glass rounded-2xl px-6 py-2 inline-block"
-            >
-              <ScoreCounter value={winner.player.score} size="md" suffix=" نقطة" />
-            </motion.div>
+            <div className="glass rounded-2xl px-6 py-2 inline-block">
+              <p className="text-2xl font-black">{winner.player.score} نقطة</p>
+            </div>
           </motion.div>
         )}
 
-        {/* Leaderboard */}
         <div className="flex-1 min-h-0 flex items-start justify-center overflow-hidden">
           <div className={`w-full ${layout.columns >= 3 ? 'max-w-6xl' : 'max-w-4xl'}`}>
             <motion.h2
@@ -238,57 +271,42 @@ export const TVResults: React.FC = () => {
               لوحة المتصدرين النهائية
             </motion.h2>
 
-            <AnimatedCardContainer
-              className={`grid ${layout.columns >= 3 ? 'grid-cols-3' : 'grid-cols-2'} ${layout.compact ? 'gap-1.5' : 'gap-2'}`}
-            >
+            <div className={`grid ${layout.columns >= 3 ? 'grid-cols-3' : 'grid-cols-2'} ${layout.compact ? 'gap-1.5' : 'gap-2'}`}>
               {visibleLeaderboard.map(({ player, rank }, index) => (
-                <AnimatedCard
+                <motion.div
                   key={player.id}
-                  index={index}
+                  initial={{ opacity: 0, y: 20 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.6 + index * 0.08 }}
                   className={`flex items-center ${layout.compact ? 'gap-2 p-2 rounded-lg' : 'gap-3 p-2.5 rounded-xl'} ${getRankGradient(rank)}`}
                 >
-                  <RankDisplay rank={rank} size="sm" />
-                  <PlayerAvatar
-                    name={player.user_name}
-                    color={player.avatar_color}
-                    size="sm"
-                  />
+                  <div className="text-xl font-black w-10 text-center">{rank}</div>
+                  <PlayerAvatar name={player.user_name} color={player.avatar_color} size="sm" />
                   <p className={`flex-1 font-bold truncate ${layout.compact ? 'text-base' : 'text-lg'}`}>{player.user_name}</p>
                   <div className="text-left">
-                    <ScoreCounter value={player.score} size="sm" />
+                    <p className="font-black">{player.score}</p>
                     <p className="text-xs text-white/60">نقطة</p>
                   </div>
-                </AnimatedCard>
+                </motion.div>
               ))}
-            </AnimatedCardContainer>
-            {leaderboard.length > visibleLeaderboard.length && (
-              <p className="text-center text-sm text-white/60 mt-2">
-                يتم عرض أعلى {visibleLeaderboard.length} لاعبين على شاشة التلفاز
-              </p>
-            )}
+            </div>
           </div>
         </div>
 
-        {/* Play Again Section */}
         <motion.div
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 1.5 }}
+          transition={{ delay: 1.2 }}
           className="mt-3 flex justify-center"
         >
-          <div className="glass rounded-2xl p-4 flex items-center gap-4">
-            <div className="text-center">
-              <p className="text-lg mb-1">العب مرة أخرى!</p>
-              <p className="text-sm text-white/60">امسح الكود للانضمام للعبة جديدة</p>
-            </div>
-            <div className="w-20 h-20 bg-white rounded-xl p-1.5">
-              <QRCodeSVG
-                value={joinUrl}
-                size={68}
-                level="M"
-                className="w-full h-full"
-              />
-            </div>
+          <div className="glass rounded-2xl p-4 text-center">
+            <p className="text-lg mb-1">إعادة نفس الغرفة</p>
+            <p className="text-sm text-white/60">
+              سيعود الجميع تلقائيًا إلى اللوبي بنفس اللاعبين عندما يعيد مسؤول الجولة تشغيل اللعبة.
+            </p>
+            {game?.code && (
+              <p className="text-base font-mono mt-2 text-white/80">الكود نفسه: {game.code}</p>
+            )}
           </div>
         </motion.div>
       </div>

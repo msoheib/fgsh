@@ -1,6 +1,12 @@
 import React, { useEffect, useState, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useGameStore, useRoundStore, GAME_CONFIG, getRoundMultiplier } from '@fakash/shared';
+import {
+  useGameStore,
+  useRoundStore,
+  GAME_CONFIG,
+  getRoundMultiplier,
+  isDisallowedQuestionCategory,
+} from '@fakash/shared';
 
 interface CombinedAnswerOption {
   id: string;
@@ -126,11 +132,13 @@ export const Game: React.FC = () => {
   const [answerInput, setAnswerInput] = useState('');
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
+  const [isForceAdvancing, setIsForceAdvancing] = useState(false);
   const [reviewCountdown, setReviewCountdown] = useState(0);
   const [categoryPrompt, setCategoryPrompt] = useState<CategoryPromptState | null>(null);
   const [categorySelection, setCategorySelection] = useState<string>('');
   const [categorySecondsLeft, setCategorySecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
   const [categoryWaitSecondsLeft, setCategoryWaitSecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
+  const [showContinueFallback, setShowContinueFallback] = useState(false);
   const roundCreationRef = useRef<number | null>(null);
   const isCreatingRoundRef = useRef<boolean>(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -162,22 +170,17 @@ export const Game: React.FC = () => {
     isWaitingForNextRound &&
     isStageStartRound(game.current_round);
 
-  const votingAnswers = useMemo(() => {
-    const truthKeys = new Set(
-      allAnswers
-        .filter((answer) => !!answer.is_correct)
-        .map((answer) => normalizeAnswerKey(answer.answer_text))
-    );
+  const getForceAdvanceWindow = useCallback((round = currentRound) => {
+    if (!round) return null;
 
-    if (truthKeys.size === 0) {
-      return allAnswers;
-    }
+    const startAt = round.timer_starts_at
+      ? new Date(round.timer_starts_at).getTime()
+      : Date.now();
+    const deadlineAt = startAt + (round.timer_duration * 1000);
+    const eligibleAt = canControlFlow ? deadlineAt : deadlineAt + 5000;
 
-    return allAnswers.filter((answer) => {
-      if (answer.is_correct) return true;
-      return !truthKeys.has(normalizeAnswerKey(answer.answer_text));
-    });
-  }, [allAnswers]);
+    return { deadlineAt, eligibleAt };
+  }, [canControlFlow, currentRound]);
 
   const combinedAnswers = useMemo<CombinedAnswerOption[]>(() => {
     const grouped = new Map<string, {
@@ -189,7 +192,7 @@ export const Game: React.FC = () => {
       correctAnswerId: string | null;
     }>();
 
-    for (const answer of votingAnswers) {
+    for (const answer of allAnswers) {
       const key = getAnswerGroupKey(answer.answer_text, !!answer.is_correct);
       if (!grouped.has(key)) {
         grouped.set(key, {
@@ -203,10 +206,14 @@ export const Game: React.FC = () => {
       } else {
         const group = grouped.get(key)!;
         group.answerIds.push(answer.id);
-        if (answer.is_correct) {
+        if (answer.is_correct && !group.correctAnswerId) {
           group.hasCorrectAnswer = true;
           group.correctAnswerId = answer.id;
         }
+      }
+
+      if (answer.is_correct && !answer.player_id) {
+        grouped.get(key)!.correctAnswerId = answer.id;
       }
 
       if (answer.player_id) {
@@ -222,7 +229,11 @@ export const Game: React.FC = () => {
       voteTargetId: group.correctAnswerId || group.answerIds[0],
       hasCorrectAnswer: group.hasCorrectAnswer,
     }));
-  }, [votingAnswers]);
+  }, [allAnswers]);
+
+  const currentPlayerAlsoWroteTruth = useMemo(() => (
+    !!currentPlayer && allAnswers.some((answer) => answer.is_correct && answer.player_id === currentPlayer.id)
+  ), [allAnswers, currentPlayer]);
 
   const finishCategorySelection = useCallback((selectedCategory: string | null) => {
     if (game && currentPlayer) {
@@ -281,6 +292,7 @@ export const Game: React.FC = () => {
         .from('questions')
         .select('category')
         .eq('language', 'ar')
+        .is('archived_at', null)
         .not('category', 'is', null);
 
       if (error) {
@@ -291,7 +303,11 @@ export const Game: React.FC = () => {
       const allCategories = Array.from(
         new Set((data || [])
           .map((item) => item.category)
-          .filter((category): category is string => !!category && category.trim().length > 0))
+          .filter((category): category is string =>
+            !!category &&
+            category.trim().length > 0 &&
+            !isDisallowedQuestionCategory(category)
+          ))
       );
 
       if (allCategories.length === 0) {
@@ -354,70 +370,32 @@ export const Game: React.FC = () => {
     setIsRecovering(true);
 
     try {
-      const { RoundService, getSupabase } = await import('@fakash/shared');
-      const round = await RoundService.getCurrentRound(game.id);
+      const { RoundService } = await import('@fakash/shared');
+      const snapshot = await RoundService.recoverRoundFromServer(game.id, currentPlayer.id);
 
-      if (!round) {
-        setIsRecovering(false);
+      if (!snapshot) {
         return;
       }
-
-      const supabase = getSupabase();
-      const { data: q } = await supabase
-        .from('questions')
-        .select('*')
-        .eq('id', round.question_id)
-        .single();
-
-      if (!q) {
-        setIsRecovering(false);
-        return;
-      }
-
-      const answers = round.status === 'voting'
-        ? await RoundService.getRoundAnswers(round.id)
-        : [];
-
-      const startTime = round.timer_starts_at
-        ? new Date(round.timer_starts_at).getTime()
-        : Date.now();
-      const elapsed = Math.floor((Date.now() - startTime) / 1000);
-      const remaining = Math.max(0, round.timer_duration - elapsed);
-
-      const { data: playerAnswer } = await supabase
-        .from('player_answers')
-        .select('*')
-        .eq('round_id', round.id)
-        .eq('player_id', currentPlayer.id)
-        .maybeSingle();
-
-      const { data: playerVote } = await supabase
-        .from('votes')
-        .select('*')
-        .eq('round_id', round.id)
-        .eq('voter_id', currentPlayer.id)
-        .maybeSingle();
 
       useRoundStore.setState({
-        currentRound: round,
-        question: q,
-        roundNumber: round.round_number,
-        roundStatus: round.status,
-        timeRemaining: remaining,
-        timerActive: remaining > 0,
-        allAnswers: answers,
+        currentRound: snapshot.round,
+        question: snapshot.question,
+        roundNumber: snapshot.round.round_number,
+        roundStatus: snapshot.round.status,
+        timeRemaining: snapshot.timeRemaining,
+        timerActive: snapshot.timerActive,
+        allAnswers: snapshot.answers,
         playerAnswers: new Map(),
-        myAnswer: playerAnswer?.answer_text || null,
-        hasSubmittedAnswer: !!playerAnswer,
-        myVote: playerVote?.answer_id || null,
-        hasSubmittedVote: !!playerVote,
+        myAnswer: snapshot.myAnswer,
+        hasSubmittedAnswer: snapshot.hasSubmittedAnswer,
+        myVote: snapshot.myVote,
+        hasSubmittedVote: snapshot.hasSubmittedVote,
         totalRounds: game.round_count,
         isLoading: false,
       });
-
-      setIsRecovering(false);
     } catch (err) {
       console.error('Recovery failed:', err);
+    } finally {
       setIsRecovering(false);
     }
   }, [game, currentPlayer]);
@@ -568,9 +546,11 @@ export const Game: React.FC = () => {
       try {
         const { GameService } = await import('@fakash/shared');
         await GameService.forceAdvanceRound(currentRound.id, currentPlayer.id);
+        await recoverRoundState();
         console.log('Server processing timer expiration');
       } catch (err) {
         console.error('Error calling force_advance_round:', err);
+        await recoverRoundState();
         forceAdvanceKeyRef.current = null;
       }
     };
@@ -578,7 +558,7 @@ export const Game: React.FC = () => {
     // Small delay to prevent multiple rapid calls
     const timer = setTimeout(handleTimerExpired, 500);
     return () => clearTimeout(timer);
-  }, [currentPlayer?.id, currentRound?.id, timeRemaining, roundStatus, canControlFlow]);
+  }, [currentPlayer?.id, currentRound?.id, timeRemaining, roundStatus, canControlFlow, recoverRoundState]);
 
   // Clear force-advance guard when a new timer starts or round changes.
   useEffect(() => {
@@ -603,6 +583,82 @@ export const Game: React.FC = () => {
     voteSubmitInFlightRef.current = false;
     pendingVoteTargetRef.current = null;
   }, [currentRound?.id, roundStatus]);
+
+  useEffect(() => {
+    setAnswerInput('');
+    setSelectedAnswer(null);
+    setShowContinueFallback(false);
+  }, [currentRound?.id]);
+
+  useEffect(() => {
+    if (!currentRound || !currentPlayer || canControlFlow || isForceAdvancing) {
+      setShowContinueFallback(false);
+      return;
+    }
+
+    if (roundStatus !== 'answering' && roundStatus !== 'voting') {
+      setShowContinueFallback(false);
+      return;
+    }
+
+    if (timeRemaining > 0) {
+      setShowContinueFallback(false);
+      return;
+    }
+
+    const timing = getForceAdvanceWindow(currentRound);
+    if (!timing) {
+      setShowContinueFallback(false);
+      return;
+    }
+
+    const delayMs = Math.max(0, timing.eligibleAt - Date.now());
+    if (delayMs <= 0) {
+      setShowContinueFallback(true);
+      return;
+    }
+
+    const timer = setTimeout(() => {
+      setShowContinueFallback(true);
+    }, delayMs);
+
+    return () => clearTimeout(timer);
+  }, [
+    canControlFlow,
+    currentPlayer?.id,
+    currentRound,
+    getForceAdvanceWindow,
+    isForceAdvancing,
+    roundStatus,
+    timeRemaining,
+  ]);
+
+  useEffect(() => {
+    if (!currentRound || !currentPlayer || canControlFlow || isRecovering || isForceAdvancing) return;
+    if (roundStatus !== 'answering' && roundStatus !== 'voting') return;
+    if (timeRemaining > 0) return;
+
+    const timing = getForceAdvanceWindow(currentRound);
+    if (!timing) return;
+
+    const staleRecoverAt = timing.eligibleAt + 1000;
+    const delayMs = Math.max(0, staleRecoverAt - Date.now());
+    const timer = setTimeout(() => {
+      void recoverRoundState();
+    }, delayMs);
+
+    return () => clearTimeout(timer);
+  }, [
+    canControlFlow,
+    currentPlayer?.id,
+    currentRound,
+    getForceAdvanceWindow,
+    isForceAdvancing,
+    isRecovering,
+    recoverRoundState,
+    roundStatus,
+    timeRemaining,
+  ]);
 
   // Recovery if stuck
   useEffect(() => {
@@ -807,6 +863,22 @@ export const Game: React.FC = () => {
     void flushPendingVote();
   };
 
+  const handleContinueAfterTimeout = async () => {
+    if (!currentRound || !currentPlayer || !showContinueFallback || isForceAdvancing) return;
+    setIsForceAdvancing(true);
+
+    try {
+      const { GameService } = await import('@fakash/shared');
+      await GameService.forceAdvanceRound(currentRound.id, currentPlayer.id);
+    } catch (err) {
+      console.error('Failed to continue after timeout:', err);
+    } finally {
+      await recoverRoundState();
+      setIsForceAdvancing(false);
+      setShowContinueFallback(false);
+    }
+  };
+
   const isFinalRound = currentRound.round_number === game.round_count;
 
   const handleNextRound = async () => {
@@ -896,10 +968,25 @@ export const Game: React.FC = () => {
           </div>
         )}
 
+        {roundStatus === 'answering' && showContinueFallback && (
+          <button
+            onClick={handleContinueAfterTimeout}
+            disabled={isForceAdvancing}
+            className="mt-3 w-full py-3 rounded-xl bg-white/10 border border-white/20 text-sm font-bold hover:bg-white/15 disabled:opacity-60"
+          >
+            {isForceAdvancing ? 'جارٍ المتابعة...' : 'متابعة اللعبة'}
+          </button>
+        )}
+
         {/* VOTING PHASE */}
         {roundStatus === 'voting' && (
           <div>
             <p className="text-center text-sm mb-3 text-white/60">اختر الإجابة الصحيحة</p>
+            {currentPlayerAlsoWroteTruth && (
+              <p className="text-center text-xs text-emerald-300 mb-3">
+                أنت أيضًا كتبت الإجابة الصحيحة.
+              </p>
+            )}
             <div className="space-y-2">
               {combinedAnswers.map((answer) => {
                 const isOwn = !answer.hasCorrectAnswer && answer.playerIds.includes(currentPlayer.id);
@@ -918,6 +1005,9 @@ export const Game: React.FC = () => {
                     }`}
                   >
                     {answer.answer_text}
+                    {!answer.hasCorrectAnswer && answer.playerIds.length > 1 && (
+                      <span className="text-xs opacity-60"> ({answer.playerIds.length} لاعبين)</span>
+                    )}
                     {isOwn && <span className="text-xs opacity-60"> (أنت)</span>}
                   </button>
                 );
@@ -929,6 +1019,16 @@ export const Game: React.FC = () => {
               </p>
             )}
           </div>
+        )}
+
+        {roundStatus === 'voting' && showContinueFallback && (
+          <button
+            onClick={handleContinueAfterTimeout}
+            disabled={isForceAdvancing}
+            className="mt-3 w-full py-3 rounded-xl bg-white/10 border border-white/20 text-sm font-bold hover:bg-white/15 disabled:opacity-60"
+          >
+            {isForceAdvancing ? 'جارٍ المتابعة...' : 'متابعة اللعبة'}
+          </button>
         )}
 
         {/* COMPLETED PHASE */}

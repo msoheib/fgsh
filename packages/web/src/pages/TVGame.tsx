@@ -151,8 +151,11 @@ interface RevealAnswer {
   id: string;
   text: string;
   isCorrect: boolean;
+  isSystemLie: boolean;
   authorId: string | null;
   authorName: string | null;
+  authorNames: string[];
+  matchingLieAuthorNames: string[];
   voters: Array<{ id: string; name: string }>;
   voteCount: number;
 }
@@ -253,7 +256,7 @@ const AnswerRevealCard: React.FC<{ answer: RevealAnswer; isActive: boolean }> = 
         transition={{ delay: 0.2 }}
       >
         <p className="text-5xl md:text-6xl font-bold mb-4">{answer.text}</p>
-        {answer.isCorrect ? (
+        {answer.isCorrect ? (<>
           <motion.p
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
@@ -262,6 +265,27 @@ const AnswerRevealCard: React.FC<{ answer: RevealAnswer; isActive: boolean }> = 
           >
             ✅ الإجابة الصحيحة!
           </motion.p>
+          {answer.authorNames.length > 0 && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.7 }}
+              className="text-xl md:text-2xl mt-3 text-emerald-100"
+            >
+              أيضًا كتبها: <span className="font-bold">{answer.authorNames.join(' + ')}</span>
+            </motion.p>
+          )}
+          {answer.matchingLieAuthorNames.length > 0 && (
+            <motion.p
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.9 }}
+              className="text-lg md:text-xl mt-2 text-white/80"
+            >
+              وأيضًا أُدخلت ككذبة بواسطة: <span className="font-bold">{answer.matchingLieAuthorNames.join(' + ')}</span>
+            </motion.p>
+          )}
+        </>
         ) : (
           <motion.p
             initial={{ opacity: 0 }}
@@ -360,6 +384,8 @@ export const TVGame: React.FC = () => {
   const warningBeepSecondRef = useRef<number | null>(null);
   const revealForRoundIdRef = useRef<string | null>(null); // Track which round reveal is for
   const tvNarrationAudioRef = useRef<HTMLAudioElement | null>(null);
+  const tvBackgroundAudioRef = useRef<HTMLAudioElement | null>(null);
+  const bgMusicUrlRef = useRef<string | null>(null);
   const previousPhaseKeyRef = useRef<string | null>(null);
   const categoryPromptPlayedRef = useRef<boolean>(false);
   const pendingCueKeyRef = useRef<GameAudioCueKey | null>(null);
@@ -380,32 +406,18 @@ export const TVGame: React.FC = () => {
     && categoryPromptRoundNumber !== null
     && categoryPromptRoundNumber <= game.round_count;
 
-  const votingAnswers = useMemo(() => {
-    const truthKeys = new Set(
-      allAnswers
-        .filter((answer) => !!answer.is_correct)
-        .map((answer) => normalizeAnswerKey(answer.answer_text))
-    );
-
-    if (truthKeys.size === 0) {
-      return allAnswers;
-    }
-
-    return allAnswers.filter((answer) => (
-      answer.is_correct || !truthKeys.has(normalizeAnswerKey(answer.answer_text))
-    ));
-  }, [allAnswers]);
-
   const combinedAnswers = useMemo(() => {
-    const grouped = new Map<string, { id: string; answer_text: string }>();
-    for (const answer of votingAnswers) {
+    const grouped = new Map<string, { id: string; answer_text: string; authorCount: number }>();
+    for (const answer of allAnswers) {
       const key = getAnswerGroupKey(answer.answer_text, !!answer.is_correct);
       if (!grouped.has(key)) {
-        grouped.set(key, { id: answer.id, answer_text: answer.answer_text });
+        grouped.set(key, { id: answer.id, answer_text: answer.answer_text, authorCount: answer.player_id ? 1 : 0 });
+      } else if (answer.player_id) {
+        grouped.get(key)!.authorCount += 1;
       }
     }
     return Array.from(grouped.values());
-  }, [votingAnswers]);
+  }, [allAnswers]);
 
   const playTvCue = useCallback(async (cueKey: GameAudioCueKey): Promise<boolean> => {
     if (!audioEnabled) return false;
@@ -417,8 +429,17 @@ export const TVGame: React.FC = () => {
         tvNarrationAudioRef.current.pause();
       }
 
+      if (tvBackgroundAudioRef.current) {
+        tvBackgroundAudioRef.current.volume = 0.03;
+      }
+
       const audio = new Audio(cue.audio_url);
       audio.preload = 'auto';
+      audio.onended = () => {
+        if (tvBackgroundAudioRef.current) {
+          tvBackgroundAudioRef.current.volume = 0.15;
+        }
+      };
       tvNarrationAudioRef.current = audio;
       await audio.play();
       setAudioBlocked(false);
@@ -586,6 +607,50 @@ export const TVGame: React.FC = () => {
       isCancelled = true;
       clearInterval(interval);
     };
+  }, []);
+
+  useEffect(() => {
+    const cue = audioCuesByKey.background_music;
+    const shouldPlay = audioEnabled && cue?.is_active && !!cue.audio_url;
+
+    if (!shouldPlay) {
+      if (tvBackgroundAudioRef.current) {
+        tvBackgroundAudioRef.current.pause();
+        tvBackgroundAudioRef.current = null;
+      }
+      bgMusicUrlRef.current = null;
+      return;
+    }
+
+    const targetUrl = cue.audio_url!;
+    if (!tvBackgroundAudioRef.current || bgMusicUrlRef.current !== targetUrl) {
+      if (tvBackgroundAudioRef.current) {
+        tvBackgroundAudioRef.current.pause();
+      }
+
+      const audio = new Audio(targetUrl);
+      audio.preload = 'auto';
+      audio.loop = true;
+      audio.volume = 0.15;
+      tvBackgroundAudioRef.current = audio;
+      bgMusicUrlRef.current = targetUrl;
+    }
+
+    void tvBackgroundAudioRef.current.play().catch((err) => {
+      console.warn('Background music could not autoplay:', err);
+      setAudioBlocked(true);
+    });
+
+    return () => {
+      if (tvBackgroundAudioRef.current) {
+        tvBackgroundAudioRef.current.pause();
+      }
+    };
+  }, [audioCuesByKey.background_music, audioEnabled]);
+
+  useEffect(() => () => {
+    tvNarrationAudioRef.current?.pause();
+    tvBackgroundAudioRef.current?.pause();
   }, []);
 
   // Fetch reveal data when round completes
@@ -1133,6 +1198,9 @@ export const TVGame: React.FC = () => {
                         className="p-8 glass rounded-3xl text-center"
                       >
                         <p className="text-3xl font-bold">{answer.answer_text}</p>
+                        {answer.authorCount > 1 && (
+                          <p className="mt-3 text-base text-white/60">مقدمة من {answer.authorCount} لاعبين</p>
+                        )}
                       </AnimatedCard>
                     ))}
                   </AnimatedCardContainer>

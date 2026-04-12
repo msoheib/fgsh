@@ -59,7 +59,7 @@ fgsh/
 │
 ├── supabase/
 │   ├── migrations/       # Database schema
-│   └── seed.sql         # Sample questions (40+ Arabic questions)
+│   └── seed.sql         # Sample questions (29 Arabic questions)
 │
 ├── package.json         # Root package.json
 └── README.md
@@ -139,7 +139,7 @@ npm run dev:mobile
 - **6 tables**: games, players, questions, game_rounds, player_answers, votes
 - **RLS policies**: Row-level security for all tables
 - **Indexes**: Performance optimization
-- **Seed data**: 40+ Arabic trivia questions across 7 categories
+- **Seed data**: 29 Arabic trivia questions across 7 categories
 
 ### 🚧 Next Steps (TODO)
 
@@ -264,7 +264,7 @@ cd packages/mobile
 ### Arabic (Primary)
 - Complete UI translations in ARABIC_TEXT constant
 - RTL layout support
-- 40+ Arabic trivia questions
+- 29 Arabic trivia questions
 
 ### English (Secondary)
 - 5 sample English questions included

@@ -63,7 +63,7 @@ export const useRoundStore = create<RoundState>((set, get) => ({
   votes: [],
   playerVotes: new Map(),
 
-  timeRemaining: 30,
+  timeRemaining: 60,
   timerActive: false,
 
   roundStatus: 'pending',
@@ -221,7 +221,7 @@ export const useRoundStore = create<RoundState>((set, get) => ({
       myVote: null,
       hasSubmittedVote: false,
       votes: [],
-      timeRemaining: 30,
+      timeRemaining: 60,
       timerActive: false,
       roundStatus: 'pending',
       isLoading: false,

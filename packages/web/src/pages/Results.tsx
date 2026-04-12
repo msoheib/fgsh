@@ -1,46 +1,54 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useGameStore, ScoringService, clearGameSession } from '@fakash/shared';
+import {
+  clearGameSession,
+  GameService,
+  ScoringService,
+  useGameStore,
+  useRoundStore,
+} from '@fakash/shared';
 
-// Ultra-minimal player results - simple static leaderboard
 export const Results: React.FC = () => {
   const navigate = useNavigate();
-  const { game, isDisplayMode, leaveGame } = useGameStore();
+  const { game, currentPlayer, isDisplayMode, leaveGame } = useGameStore();
   const [leaderboard, setLeaderboard] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isReplaying, setIsReplaying] = useState(false);
   const gameIdRef = useRef<string | null>(null);
 
-  // Redirect display mode to TV results
   useEffect(() => {
     if (isDisplayMode) {
       navigate('/tv/results', { replace: true });
     }
   }, [isDisplayMode, navigate]);
 
-  // Capture game ID
   useEffect(() => {
     if (game?.id && !gameIdRef.current) {
       gameIdRef.current = game.id;
     }
   }, [game?.id]);
 
-  // Fetch leaderboard
   useEffect(() => {
-    const gameId = game?.id || gameIdRef.current;
-
-    if (!gameId) {
+    const activeGameId = game?.id || gameIdRef.current;
+    if (!activeGameId) {
       navigate('/');
       return;
     }
 
-    if (game && game.status !== 'finished') {
-      navigate('/game');
+    if (game?.status === 'waiting') {
+      useRoundStore.getState().reset();
+      navigate('/lobby', { replace: true });
+      return;
+    }
+
+    if (game?.status === 'playing') {
+      navigate('/game', { replace: true });
       return;
     }
 
     const fetchLeaderboard = async () => {
       try {
-        const data = await ScoringService.getFinalLeaderboard(gameId);
+        const data = await ScoringService.getFinalLeaderboard(activeGameId);
         setLeaderboard(data);
       } catch (err) {
         console.error('Failed to fetch leaderboard:', err);
@@ -58,6 +66,24 @@ export const Results: React.FC = () => {
     navigate('/');
   };
 
+  const handleReplay = async () => {
+    const activeGameId = game?.id || gameIdRef.current;
+    if (!activeGameId || !currentPlayer || isReplaying) {
+      return;
+    }
+
+    setIsReplaying(true);
+    try {
+      const restartedGame = await GameService.restartFinishedGame(activeGameId, currentPlayer.id);
+      useRoundStore.getState().reset();
+      useGameStore.setState({ game: restartedGame });
+      navigate('/lobby', { replace: true });
+    } catch (err) {
+      console.error('Failed to restart game:', err);
+      setIsReplaying(false);
+    }
+  };
+
   if (isDisplayMode) {
     return null;
   }
@@ -71,11 +97,11 @@ export const Results: React.FC = () => {
   }
 
   const winner = leaderboard[0];
+  const canRestart = !!game && !!currentPlayer && currentPlayer.id === (game.host_id ?? game.phase_captain_id ?? currentPlayer.id);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-primary">
       <div className="bg-white/10 backdrop-blur rounded-2xl p-4 sm:p-6 w-full max-w-md max-h-[90vh] text-center overflow-hidden">
-        {/* Winner */}
         {winner && (
           <div className="mb-4 p-4 bg-yellow-500/20 rounded-xl border border-yellow-500/30">
             <p className="text-2xl mb-1">🏆</p>
@@ -84,7 +110,6 @@ export const Results: React.FC = () => {
           </div>
         )}
 
-        {/* Simple Leaderboard */}
         <div className="mb-4 text-right overflow-y-auto max-h-[52vh] pr-1">
           {leaderboard.slice(0, 5).map(({ player, rank }) => (
             <div
@@ -102,7 +127,20 @@ export const Results: React.FC = () => {
           ))}
         </div>
 
-        {/* Home Button */}
+        {canRestart ? (
+          <button
+            onClick={handleReplay}
+            disabled={isReplaying}
+            className="w-full py-3 mb-3 rounded-xl bg-gradient-to-r from-cyan-500 to-blue-500 font-bold disabled:opacity-60"
+          >
+            {isReplaying ? 'جارٍ إعادة الغرفة...' : 'إعادة نفس الغرفة'}
+          </button>
+        ) : (
+          <div className="mb-3 rounded-xl border border-cyan-400/30 bg-cyan-500/10 p-3 text-sm text-right text-white/80">
+            سيتم إرجاع الجميع إلى نفس اللوبي ونفس الكود عندما يعيد مسؤول الجولة تشغيل اللعبة.
+          </div>
+        )}
+
         <button
           onClick={handleGoHome}
           className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold"
