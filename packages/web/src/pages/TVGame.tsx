@@ -392,6 +392,7 @@ export const TVGame: React.FC = () => {
   const confetti = useConfetti();
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
   const displayRoundNumber = categoryPromptRoundNumber ?? Math.max(game?.current_round ?? 0, 1);
+  const expectedRoundNumber = game?.current_round ?? 0;
   const categoryStageInfo = getStageInfo(displayRoundNumber);
   const categoryStagePoints = game ? getStagePointsSummary(displayRoundNumber, game.round_count) : null;
   const isBetweenRounds = !!game
@@ -405,6 +406,21 @@ export const TVGame: React.FC = () => {
     && isBetweenRounds
     && categoryPromptRoundNumber !== null
     && categoryPromptRoundNumber <= game.round_count;
+  const roundStateIsStale = useMemo(() => {
+    if (!game || game.status !== 'playing' || expectedRoundNumber <= 0) {
+      return false;
+    }
+
+    if (!currentRound) {
+      return true;
+    }
+
+    if (currentRound.round_number !== expectedRoundNumber) {
+      return true;
+    }
+
+    return currentRound.status === 'completed' && expectedRoundNumber > currentRound.round_number;
+  }, [currentRound?.id, currentRound?.round_number, currentRound?.status, expectedRoundNumber, game?.id, game?.status]);
 
   const combinedAnswers = useMemo(() => {
     const grouped = new Map<string, { id: string; answer_text: string; authorCount: number }>();
@@ -518,7 +534,13 @@ export const TVGame: React.FC = () => {
       const { RoundService, getSupabase } = await import('@fakash/shared');
       const round = await RoundService.getCurrentRound(game.id);
 
-      if (!round) return;
+      if (!round) {
+        console.warn('[TVGame] Server recovery returned no active round snapshot', {
+          gameId: game.id,
+          expectedRoundNumber,
+        });
+        return;
+      }
 
       let recoveredQuestion = round.question;
       if (!recoveredQuestion) {
@@ -531,7 +553,14 @@ export const TVGame: React.FC = () => {
         recoveredQuestion = questionData || undefined;
       }
 
-      if (!recoveredQuestion) return;
+      if (!recoveredQuestion) {
+        console.warn('[TVGame] Server recovery found a round but no question payload', {
+          gameId: game.id,
+          roundId: round.id,
+          questionId: round.question_id,
+        });
+        return;
+      }
 
       const answers = round.status === 'voting' || round.status === 'completed'
         ? await RoundService.getRoundAnswers(round.id)
@@ -806,12 +835,38 @@ export const TVGame: React.FC = () => {
     syncScores();
   }, [game, revealComplete]);
 
-  // Recovery mechanism: self-heal if stuck on loader
+  // Recovery mechanism: self-heal when the local round state drifts from the server.
   useEffect(() => {
-    if (!game || game.status !== 'playing' || (currentRound && question) || isRecovering) return;
-    const timer = setTimeout(() => recoverRoundState(), 2500);
+    if (!game || game.status !== 'playing' || isRecovering) return;
+    if (!roundStateIsStale) return;
+
+    const delayMs = shouldShowCategorySelectionWait ? 3000 : 1200;
+    const timer = setTimeout(() => {
+      console.warn('[TVGame] Local round state is stale; recovering from server', {
+        expectedRoundNumber,
+        localRoundNumber: currentRound?.round_number ?? null,
+        localRoundStatus: currentRound?.status ?? null,
+        hasQuestion: !!question,
+        categoryPromptRoundNumber,
+      });
+      void recoverRoundState();
+    }, delayMs);
+
     return () => clearTimeout(timer);
-  }, [game, currentRound, question, isRecovering, recoverRoundState]);
+  }, [
+    categoryPromptRoundNumber,
+    currentRound?.id,
+    currentRound?.round_number,
+    currentRound?.status,
+    expectedRoundNumber,
+    game?.id,
+    game?.status,
+    isRecovering,
+    question?.id,
+    recoverRoundState,
+    roundStateIsStale,
+    shouldShowCategorySelectionWait,
+  ]);
 
   // Show countdown while the captain selects the next category.
   useEffect(() => {

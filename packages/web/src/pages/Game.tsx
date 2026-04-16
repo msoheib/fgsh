@@ -155,6 +155,7 @@ export const Game: React.FC = () => {
   );
   const reviewLockSeconds = Math.max(GAME_CONFIG.RESULTS_DISPLAY_DURATION, revealEstimateSeconds);
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
+  const expectedRoundNumber = game?.current_round ?? 0;
   const currentRoundPoints = currentRound && game
     ? getStagePointsSummary(currentRound.round_number, game.round_count)
     : null;
@@ -169,6 +170,25 @@ export const Game: React.FC = () => {
   const isAwaitingStageCategorySelection = !!game &&
     isWaitingForNextRound &&
     isStageStartRound(game.current_round);
+  const roundStateIsStale = useMemo(() => {
+    if (!game || game.status !== 'playing' || expectedRoundNumber <= 0) {
+      return false;
+    }
+
+    if (!currentRound) {
+      return true;
+    }
+
+    if (!question) {
+      return true;
+    }
+
+    if (currentRound.round_number !== expectedRoundNumber) {
+      return true;
+    }
+
+    return currentRound.status === 'completed' && expectedRoundNumber > currentRound.round_number;
+  }, [currentRound?.id, currentRound?.round_number, currentRound?.status, expectedRoundNumber, game?.id, game?.status, question?.id]);
 
   const getForceAdvanceWindow = useCallback((round = currentRound) => {
     if (!round) return null;
@@ -374,6 +394,10 @@ export const Game: React.FC = () => {
       const snapshot = await RoundService.recoverRoundFromServer(game.id, currentPlayer.id);
 
       if (!snapshot) {
+        console.warn('[Game] Server recovery returned no active round snapshot', {
+          gameId: game.id,
+          expectedRoundNumber: game.current_round,
+        });
         return;
       }
 
@@ -399,6 +423,27 @@ export const Game: React.FC = () => {
       setIsRecovering(false);
     }
   }, [game, currentPlayer]);
+
+  const syncRoundStateAfterServerAdvance = useCallback(async (source: 'controller' | 'fallback') => {
+    await recoverRoundState();
+
+    const roundState = useRoundStore.getState();
+    const localRoundNumber = roundState.currentRound?.round_number ?? 0;
+    const localRoundStatus = roundState.currentRound?.status ?? 'none';
+
+    if (expectedRoundNumber > 0 && localRoundNumber !== expectedRoundNumber) {
+      console.warn('[Game] Round state still mismatched after server advance recovery', {
+        source,
+        expectedRoundNumber,
+        localRoundNumber,
+        localRoundStatus,
+        currentRoundId: roundState.currentRound?.id ?? null,
+      });
+
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      await recoverRoundState();
+    }
+  }, [expectedRoundNumber, recoverRoundState]);
 
   // Redirect display mode to TV routes
   useEffect(() => {
@@ -481,6 +526,12 @@ export const Game: React.FC = () => {
           const selectedCategory = await getCategoryForRound(game.current_round);
           await startRound(game.id, game.current_round, game.round_count, selectedCategory);
         } catch (err: any) {
+          console.warn('[Game] Round creation failed or needs retry', {
+            gameId: game.id,
+            roundNumber: game.current_round,
+            currentRoundId: currentRound?.id ?? null,
+            error: err?.message ?? String(err),
+          });
           if (!err.message?.includes('duplicate key')) {
             roundCreationRef.current = null;
           }
@@ -546,11 +597,11 @@ export const Game: React.FC = () => {
       try {
         const { GameService } = await import('@fakash/shared');
         await GameService.forceAdvanceRound(currentRound.id, currentPlayer.id);
-        await recoverRoundState();
+        await syncRoundStateAfterServerAdvance('controller');
         console.log('Server processing timer expiration');
       } catch (err) {
         console.error('Error calling force_advance_round:', err);
-        await recoverRoundState();
+        await syncRoundStateAfterServerAdvance('controller');
         forceAdvanceKeyRef.current = null;
       }
     };
@@ -558,7 +609,7 @@ export const Game: React.FC = () => {
     // Small delay to prevent multiple rapid calls
     const timer = setTimeout(handleTimerExpired, 500);
     return () => clearTimeout(timer);
-  }, [currentPlayer?.id, currentRound?.id, timeRemaining, roundStatus, canControlFlow, recoverRoundState]);
+  }, [currentPlayer?.id, currentRound?.id, timeRemaining, roundStatus, canControlFlow, syncRoundStateAfterServerAdvance]);
 
   // Clear force-advance guard when a new timer starts or round changes.
   useEffect(() => {
@@ -660,12 +711,38 @@ export const Game: React.FC = () => {
     timeRemaining,
   ]);
 
-  // Recovery if stuck
+  // Recovery if the local round state is stale or missing.
   useEffect(() => {
-    if (!game || !currentPlayer || (currentRound && question) || game.status !== 'playing' || isRecovering || !!categoryPrompt) return;
-    const timer = setTimeout(() => recoverRoundState(), 3000);
+    if (!game || !currentPlayer || game.status !== 'playing' || isRecovering) return;
+    if (!roundStateIsStale) return;
+
+    const delayMs = categoryPrompt ? 3000 : 1000;
+    const timer = setTimeout(() => {
+      console.warn('[Game] Local round state is stale; recovering from server', {
+        expectedRoundNumber,
+        localRoundNumber: currentRound?.round_number ?? null,
+        localRoundStatus: currentRound?.status ?? null,
+        hasQuestion: !!question,
+        categoryPromptRoundNumber: categoryPrompt?.roundNumber ?? null,
+      });
+      void recoverRoundState();
+    }, delayMs);
+
     return () => clearTimeout(timer);
-  }, [game, currentPlayer, currentRound, question, isRecovering, recoverRoundState, categoryPrompt]);
+  }, [
+    categoryPrompt?.roundNumber,
+    currentPlayer?.id,
+    currentRound?.id,
+    currentRound?.round_number,
+    currentRound?.status,
+    expectedRoundNumber,
+    game?.id,
+    game?.status,
+    isRecovering,
+    question?.id,
+    recoverRoundState,
+    roundStateIsStale,
+  ]);
 
   // Keep UI selection in sync with stored vote (rehydration/realtime).
   useEffect(() => {
@@ -873,7 +950,7 @@ export const Game: React.FC = () => {
     } catch (err) {
       console.error('Failed to continue after timeout:', err);
     } finally {
-      await recoverRoundState();
+      await syncRoundStateAfterServerAdvance('fallback');
       setIsForceAdvancing(false);
       setShowContinueFallback(false);
     }
