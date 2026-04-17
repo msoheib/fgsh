@@ -7,6 +7,20 @@ import { LoadingSpinner } from '../components/LoadingSpinner';
 
 type PaymentStatus = 'loading' | 'success' | 'failed' | 'error';
 
+const PAYMENT_CALLBACK_ERROR_MESSAGES: Record<string, string> = {
+  auth_required: 'انتهت جلسة تسجيل الدخول. سجّل الدخول مرة أخرى ثم أعد المحاولة.',
+  missing_payment_id: 'معرّف الدفع مفقود من رابط العودة.',
+  env_missing: 'خدمة التحقق من الدفع غير مهيأة حالياً. حاول مرة أخرى لاحقاً.',
+  invalid_request: 'طلب التحقق غير صالح.',
+  banned_user: 'هذا الحساب غير مسموح له بإتمام عملية الدفع.',
+  payment_belongs_to_other_user: 'هذه العملية لا تخص هذا الحساب.',
+  plan_resolution_failed: 'تعذر تحديد الباقة المرتبطة بهذه العملية.',
+  moyasar_verify_failed: 'تعذر التحقق من الدفع مع Moyasar.',
+  payment_insert_failed: 'تعذر تسجيل عملية الدفع في النظام.',
+  payment_status_update_failed: 'تعذر تحديث حالة الدفع في النظام.',
+  callback_request_failed: 'تعذر الوصول إلى خدمة التحقق من الدفع.',
+};
+
 export const PaymentCallback: React.FC = () => {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
@@ -62,6 +76,7 @@ export const PaymentCallback: React.FC = () => {
   const handlePaymentVerification = async (paymentId: string, callbackPlan?: string | null) => {
     try {
       const result = await PaymentService.handlePaymentCallback(paymentId, callbackPlan);
+      console.log('[PaymentCallback] Verification result:', result);
 
       if (result.success) {
         // 3. Mark as verified in sessionStorage so we don't loop on remount
@@ -72,10 +87,23 @@ export const PaymentCallback: React.FC = () => {
 
         setStatus('success');
         setMessage(result.message);
-      } else {
+        return;
+      }
+
+      if (result.code) {
+        setStatus('error');
+        setMessage(PAYMENT_CALLBACK_ERROR_MESSAGES[result.code] || result.message || 'حدث خطأ أثناء التحقق من الدفع');
+        return;
+      }
+
+      if (result.payment?.status === 'failed') {
         setStatus('failed');
         setMessage(result.message);
+        return;
       }
+
+      setStatus('error');
+      setMessage(result.message || 'حدث خطأ أثناء التحقق من الدفع');
     } catch (error: any) {
       console.error('Payment verification error:', error);
       setStatus('error');

@@ -7,6 +7,24 @@ const corsHeaders = {
 };
 
 type PaymentPlanId = 'basic' | 'premium' | 'lifetime';
+type CallbackErrorCode =
+  | 'auth_required'
+  | 'missing_payment_id'
+  | 'env_missing'
+  | 'invalid_request'
+  | 'banned_user'
+  | 'payment_belongs_to_other_user'
+  | 'plan_resolution_failed'
+  | 'moyasar_verify_failed'
+  | 'payment_insert_failed'
+  | 'payment_status_update_failed'
+  | 'callback_request_failed';
+
+const PLAN_AMOUNTS: Record<PaymentPlanId, number> = {
+  basic: 4900,
+  premium: 9900,
+  lifetime: 29900,
+};
 
 type MoyasarPayment = {
   id: string;
@@ -27,11 +45,26 @@ type MoyasarPayment = {
   };
 };
 
-const PLAN_AMOUNTS: Record<PaymentPlanId, number> = {
-  basic: 2900,
-  premium: 4900,
-  lifetime: 9900,
-};
+type CallbackResponse =
+  | {
+    success: true;
+    code: null;
+    payment: MoyasarPayment;
+    message: string;
+  }
+  | {
+    success: false;
+    code: null;
+    payment?: MoyasarPayment;
+    message: string;
+  }
+  | {
+    success: false;
+    code: CallbackErrorCode;
+    error: string;
+    message: string;
+    details?: Record<string, unknown>;
+  };
 
 function normalizePlanId(plan?: string | null, amount?: number): PaymentPlanId | null {
   const normalized = plan?.trim().toLowerCase();
@@ -66,6 +99,41 @@ function buildMessage(status: string): string {
   return `عملية الدفع قيد المعالجة... (الحالة: ${status})`;
 }
 
+function jsonResponse(status: number, payload: CallbackResponse): Response {
+  return new Response(
+    JSON.stringify(payload),
+    {
+      status,
+      headers: {
+        ...corsHeaders,
+        'Content-Type': 'application/json',
+      },
+    },
+  );
+}
+
+function errorResponse(
+  status: number,
+  code: CallbackErrorCode,
+  error: string,
+  details?: Record<string, unknown>,
+): Response {
+  return jsonResponse(status, {
+    success: false,
+    code,
+    error,
+    message: error,
+    details,
+  });
+}
+
+function isDuplicateKeyError(error: unknown): boolean {
+  return typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: string }).code === '23505';
+}
+
 async function fetchVerifiedPayment(paymentId: string, moyasarSecretKey: string): Promise<MoyasarPayment> {
   const response = await fetch(`https://api.moyasar.com/v1/payments/${paymentId}`, {
     method: 'GET',
@@ -89,51 +157,94 @@ serve(async (req) => {
   }
 
   try {
-    const supabaseUrl = Deno.env.get('SUPABASE_URL')!;
+    const supabaseUrl = Deno.env.get('SUPABASE_URL');
     const supabaseAnonKey = Deno.env.get('SUPABASE_ANON_KEY') ?? Deno.env.get('SUPABASE_PUBLISHABLE_KEY');
-    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY')!;
-    const moyasarSecretKey = Deno.env.get('MOYASAR_SECRET_KEY')!;
+    const supabaseServiceKey = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY');
+    const moyasarSecretKey = Deno.env.get('MOYASAR_SECRET_KEY');
     const allowTestPayments = Deno.env.get('ALLOW_TEST_PAYMENTS') === 'true';
+    const missingEnv = [
+      !supabaseUrl ? 'SUPABASE_URL' : null,
+      !supabaseAnonKey ? 'SUPABASE_ANON_KEY|SUPABASE_PUBLISHABLE_KEY' : null,
+      !supabaseServiceKey ? 'SUPABASE_SERVICE_ROLE_KEY' : null,
+      !moyasarSecretKey ? 'MOYASAR_SECRET_KEY' : null,
+    ].filter((value): value is string => Boolean(value));
 
-    if (!supabaseAnonKey) {
-      throw new Error('SUPABASE_ANON_KEY is not configured');
+    if (missingEnv.length > 0) {
+      return errorResponse(
+        500,
+        'env_missing',
+        'Missing required environment variables for payment verification',
+        { missing: missingEnv },
+      );
     }
 
-    const authClient = createClient(supabaseUrl, supabaseAnonKey, {
+    const resolvedSupabaseUrl = supabaseUrl as string;
+    const resolvedSupabaseAnonKey = supabaseAnonKey as string;
+    const resolvedSupabaseServiceKey = supabaseServiceKey as string;
+    const resolvedMoyasarSecretKey = moyasarSecretKey as string;
+
+    const authClient = createClient(resolvedSupabaseUrl, resolvedSupabaseAnonKey, {
       global: {
         headers: {
           Authorization: req.headers.get('Authorization') ?? '',
         },
       },
     });
-    const serviceClient = createClient(supabaseUrl, supabaseServiceKey);
+    const serviceClient = createClient(resolvedSupabaseUrl, resolvedSupabaseServiceKey);
 
     const { data: authData, error: authError } = await authClient.auth.getUser();
     if (authError || !authData.user) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Authentication required' }),
-        { status: 401, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      return errorResponse(
+        401,
+        'auth_required',
+        'Authentication required',
+        { reason: authError?.message ?? 'No user session' },
       );
     }
 
-    const { paymentId, plan } = await req.json() as { paymentId?: string; plan?: string | null };
+    let body: { paymentId?: string; plan?: string | null };
+    try {
+      body = await req.json() as { paymentId?: string; plan?: string | null };
+    } catch (bodyError) {
+      return errorResponse(
+        400,
+        'invalid_request',
+        'Invalid request body',
+        { reason: bodyError instanceof Error ? bodyError.message : String(bodyError) },
+      );
+    }
+
+    const { paymentId, plan } = body;
     if (!paymentId) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Payment ID is required' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      return errorResponse(
+        400,
+        'missing_payment_id',
+        'Payment ID is required',
+        { plan: plan ?? null },
       );
     }
 
-    const { data: profile } = await serviceClient
+    const { data: profile, error: profileError } = await serviceClient
       .from('host_profiles')
       .select('is_banned')
       .eq('id', authData.user.id)
       .maybeSingle();
 
+    if (profileError) {
+      return errorResponse(
+        500,
+        'callback_request_failed',
+        'Failed to load host profile',
+        { step: 'load_host_profile', reason: profileError.message },
+      );
+    }
+
     if (profile?.is_banned) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Banned users cannot confirm payments' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      return errorResponse(
+        403,
+        'banned_user',
+        'Banned users cannot confirm payments',
+        { hostId: authData.user.id },
       );
     }
 
@@ -141,9 +252,11 @@ serve(async (req) => {
     if (allowTestPayments && paymentId.startsWith('test_')) {
       const normalizedPlan = normalizePlanId(plan, undefined);
       if (!normalizedPlan) {
-        return new Response(
-          JSON.stringify({ success: false, error: 'Valid plan is required for test payment confirmation' }),
-          { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+        return errorResponse(
+          400,
+          'plan_resolution_failed',
+          'Valid plan is required for test payment confirmation',
+          { paymentId, plan: plan ?? null },
         );
       }
 
@@ -164,27 +277,63 @@ serve(async (req) => {
         },
       };
     } else {
-      payment = await fetchVerifiedPayment(paymentId, moyasarSecretKey);
+      try {
+        payment = await fetchVerifiedPayment(paymentId, resolvedMoyasarSecretKey);
+      } catch (verifyError) {
+        return errorResponse(
+          502,
+          'moyasar_verify_failed',
+          'Failed to verify payment with Moyasar',
+          {
+            paymentId,
+            reason: verifyError instanceof Error ? verifyError.message : String(verifyError),
+          },
+        );
+      }
     }
 
     const normalizedPlan = normalizePlanId(plan, payment.amount);
     if (!normalizedPlan) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Unable to resolve payment plan' }),
-        { status: 400, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      return errorResponse(
+        400,
+        'plan_resolution_failed',
+        'Unable to resolve payment plan',
+        {
+          paymentId,
+          plan: plan ?? null,
+          amount: payment.amount,
+        },
       );
     }
 
-    const { data: existingPayment } = await serviceClient
+    const { data: existingPayment, error: existingPaymentError } = await serviceClient
       .from('payments')
       .select('id, host_id')
       .eq('moyasar_payment_id', payment.id)
       .maybeSingle();
 
+    if (existingPaymentError) {
+      return errorResponse(
+        500,
+        'callback_request_failed',
+        'Failed to load existing payment record',
+        {
+          step: 'load_existing_payment',
+          paymentId: payment.id,
+          reason: existingPaymentError.message,
+        },
+      );
+    }
+
     if (existingPayment && existingPayment.host_id !== authData.user.id) {
-      return new Response(
-        JSON.stringify({ success: false, error: 'Payment does not belong to the current user' }),
-        { status: 403, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+      return errorResponse(
+        403,
+        'payment_belongs_to_other_user',
+        'Payment does not belong to the current user',
+        {
+          paymentId: payment.id,
+          hostId: authData.user.id,
+        },
       );
     }
 
@@ -203,7 +352,48 @@ serve(async (req) => {
         });
 
       if (insertError) {
-        throw insertError;
+        if (!isDuplicateKeyError(insertError)) {
+          return errorResponse(
+            500,
+            'payment_insert_failed',
+            'Failed to create payment record',
+            {
+              paymentId: payment.id,
+              reason: insertError.message ?? 'Unknown insert error',
+              code: insertError.code ?? null,
+            },
+          );
+        }
+
+        const { data: duplicatePayment, error: duplicatePaymentError } = await serviceClient
+          .from('payments')
+          .select('id, host_id')
+          .eq('moyasar_payment_id', payment.id)
+          .maybeSingle();
+
+        if (duplicatePaymentError || !duplicatePayment) {
+          return errorResponse(
+            500,
+            'payment_insert_failed',
+            'Failed to reconcile duplicate payment record',
+            {
+              paymentId: payment.id,
+              reason: duplicatePaymentError?.message ?? 'Duplicate record could not be reloaded',
+            },
+          );
+        }
+
+        if (duplicatePayment.host_id !== authData.user.id) {
+          return errorResponse(
+            403,
+            'payment_belongs_to_other_user',
+            'Payment does not belong to the current user',
+            {
+              paymentId: payment.id,
+              hostId: authData.user.id,
+            },
+          );
+        }
       }
     }
 
@@ -220,25 +410,41 @@ serve(async (req) => {
     });
 
     if (updateError || !updated) {
-      throw updateError || new Error('Failed to update payment status');
+      return errorResponse(
+        500,
+        'payment_status_update_failed',
+        'Failed to update payment status',
+        {
+          paymentId: payment.id,
+          reason: updateError?.message ?? 'Update RPC returned no row',
+        },
+      );
     }
 
-    return new Response(
-      JSON.stringify({
-        success: normalizedStatus === 'paid',
+    if (normalizedStatus === 'paid') {
+      return jsonResponse(200, {
+        success: true,
+        code: null,
         payment,
         message: buildMessage(normalizedStatus),
-      }),
-      { status: 200, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
-    );
+      });
+    }
+
+    return jsonResponse(200, {
+      success: false,
+      code: null,
+      payment,
+      message: buildMessage(normalizedStatus),
+    });
   } catch (error) {
     console.error('confirm-payment-callback error:', error);
-    return new Response(
-      JSON.stringify({
-        success: false,
-        error: error instanceof Error ? error.message : 'Unknown error',
-      }),
-      { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } },
+    return errorResponse(
+      500,
+      'callback_request_failed',
+      error instanceof Error ? error.message : 'Unknown error',
+      {
+        reason: error instanceof Error ? error.stack ?? error.message : String(error),
+      },
     );
   }
 });

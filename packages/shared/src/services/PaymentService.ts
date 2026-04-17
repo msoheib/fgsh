@@ -28,6 +28,91 @@ export interface PaymentRecord {
   subscription_expires_at?: string;
 }
 
+export type PaymentCallbackErrorCode =
+  | 'auth_required'
+  | 'missing_payment_id'
+  | 'env_missing'
+  | 'invalid_request'
+  | 'banned_user'
+  | 'payment_belongs_to_other_user'
+  | 'plan_resolution_failed'
+  | 'moyasar_verify_failed'
+  | 'payment_insert_failed'
+  | 'payment_status_update_failed'
+  | 'callback_request_failed';
+
+export interface PaymentCallbackResult {
+  success: boolean;
+  payment?: MoyasarPayment;
+  message: string;
+  code?: PaymentCallbackErrorCode | null;
+  error?: string;
+  status?: number;
+  details?: Record<string, unknown> | null;
+}
+
+type PaymentCallbackPayload = {
+  success: boolean;
+  payment?: MoyasarPayment;
+  message?: string;
+  code?: PaymentCallbackErrorCode | null;
+  error?: string;
+  details?: Record<string, unknown>;
+};
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null;
+}
+
+function isPaymentCallbackPayload(value: unknown): value is PaymentCallbackPayload {
+  return isRecord(value) && typeof value.success === 'boolean';
+}
+
+async function readResponseJson(response?: Response): Promise<unknown | null> {
+  if (!response) {
+    return null;
+  }
+
+  try {
+    const cloned = response.clone();
+    const text = await cloned.text();
+    if (!text) {
+      return null;
+    }
+
+    return JSON.parse(text) as unknown;
+  } catch (error) {
+    console.warn('[PaymentCallback] Failed to parse callback response body:', error);
+    return null;
+  }
+}
+
+function normalizeCallbackResult(
+  payload: PaymentCallbackPayload,
+  status?: number,
+): PaymentCallbackResult {
+  return {
+    success: payload.success,
+    payment: payload.payment,
+    message: payload.message || payload.error || 'تعذر التحقق من الدفع.',
+    code: payload.code ?? null,
+    error: payload.error,
+    status,
+    details: payload.details ?? null,
+  };
+}
+
+function buildFallbackCallbackResult(message: string, error?: string, status?: number): PaymentCallbackResult {
+  return {
+    success: false,
+    code: 'callback_request_failed',
+    message,
+    error: error || message,
+    status,
+    details: null,
+  };
+}
+
 export class PaymentService {
   /**
    * Check if the current user is authenticated and can create games.
@@ -108,36 +193,82 @@ export class PaymentService {
   /**
    * Handle payment callback through a verified Edge Function.
    */
-  static async handlePaymentCallback(paymentId: string, callbackPlan?: string | null): Promise<{
-    success: boolean;
-    payment: MoyasarPayment;
-    message: string;
-  }> {
+  static async handlePaymentCallback(paymentId: string, callbackPlan?: string | null): Promise<PaymentCallbackResult> {
     try {
       console.log('[PaymentCallback] Starting confirmation for payment:', paymentId);
 
       const supabase = getSupabase();
-      const { data, error } = await supabase.functions.invoke('confirm-payment-callback', {
+      const { data, error, response } = await supabase.functions.invoke<PaymentCallbackPayload>('confirm-payment-callback', {
         body: {
           paymentId,
           plan: callbackPlan ?? null,
         },
       });
 
+      const responseStatus = response?.status;
+
+      if (isPaymentCallbackPayload(data)) {
+        if (data.success) {
+          return normalizeCallbackResult(data, responseStatus);
+        }
+
+        return normalizeCallbackResult(data, responseStatus);
+      }
+
       if (error) {
-        console.error('[PaymentCallback] Edge confirmation failed:', error);
-        throw new Error(error.message || 'Failed to confirm payment callback');
+        const parsedResponse = await readResponseJson(response);
+        if (isPaymentCallbackPayload(parsedResponse)) {
+          const normalized = normalizeCallbackResult(parsedResponse, responseStatus);
+          console.warn('[PaymentCallback] Edge confirmation returned structured failure:', {
+            paymentId,
+            status: responseStatus,
+            code: normalized.code,
+            message: normalized.message,
+          });
+          return normalized;
+        }
+
+        const errorMessage = error instanceof Error ? error.message : 'Failed to confirm payment callback';
+        console.error('[PaymentCallback] Edge confirmation failed:', {
+          paymentId,
+          status: responseStatus,
+          error,
+          parsedResponse,
+        });
+        return buildFallbackCallbackResult(
+          'تعذر التحقق من الدفع حالياً. يرجى المحاولة مرة أخرى.',
+          errorMessage,
+          responseStatus,
+        );
       }
 
-      if (!data?.payment) {
-        throw new Error(data?.error || 'Missing payment confirmation payload');
+      const parsedResponse = await readResponseJson(response);
+      if (isPaymentCallbackPayload(parsedResponse)) {
+        return normalizeCallbackResult(parsedResponse, responseStatus);
       }
 
-      return {
-        success: !!data.success,
-        payment: data.payment as MoyasarPayment,
-        message: data.message || (data.success ? 'تم الدفع بنجاح!' : 'فشلت عملية الدفع.'),
-      };
+      if (data && typeof data === 'object') {
+        const payload = data as Record<string, unknown>;
+        const maybeMessage = typeof payload.message === 'string' ? payload.message : undefined;
+        const maybeError = typeof payload.error === 'string' ? payload.error : undefined;
+        const maybeCode = typeof payload.code === 'string' ? payload.code as PaymentCallbackErrorCode : null;
+
+        return {
+          success: Boolean(payload.success),
+          payment: isRecord(payload.payment) ? (payload.payment as unknown as MoyasarPayment) : undefined,
+          message: maybeMessage || maybeError || 'تعذر التحقق من الدفع.',
+          code: maybeCode,
+          error: maybeError,
+          status: responseStatus,
+          details: isRecord(payload.details) ? payload.details : null,
+        };
+      }
+
+      return buildFallbackCallbackResult(
+        'تعذر التحقق من الدفع حالياً. يرجى المحاولة مرة أخرى.',
+        'Missing payment confirmation payload',
+        responseStatus,
+      );
     } catch (error: any) {
       console.error('[PaymentCallback] Error handling payment callback:', error);
       console.error('[PaymentCallback] Error details:', {
@@ -145,7 +276,10 @@ export class PaymentService {
         stack: error.stack,
         paymentId,
       });
-      throw error;
+      return buildFallbackCallbackResult(
+        'تعذر التحقق من الدفع حالياً. يرجى المحاولة مرة أخرى.',
+        error?.message || 'Unexpected payment callback error',
+      );
     }
   }
 
