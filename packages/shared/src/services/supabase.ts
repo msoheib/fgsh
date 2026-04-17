@@ -33,9 +33,7 @@ export function initializeSupabase(url: string, anonKey: string, options?: Supab
         schema: 'public',
       },
       global: {
-        headers: {
-          'Prefer': 'return=representation',
-        },
+        headers: {},
       },
     });
   }
