@@ -1,6 +1,7 @@
 import { getSupabase } from './supabase';
 import { Game, GameRound, Player, PlayerAnswer } from '../types';
 import { RoundService } from './RoundService';
+import { getErrorInfo } from '../utils/errorInfo';
 
 export interface SyncState {
   game: Game;
@@ -121,12 +122,12 @@ export class SyncService {
       callback?.(result);
       return result;
     } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
-      console.error('❌ SyncService: Sync failed for game', gameId, errorMessage);
+      const errorInfo = getErrorInfo(error);
+      console.error('❌ SyncService: Sync failed for game', gameId, errorInfo);
       
       const result: SyncResult = {
         success: false,
-        error: errorMessage,
+        error: errorInfo.message,
         changed: false,
       };
 

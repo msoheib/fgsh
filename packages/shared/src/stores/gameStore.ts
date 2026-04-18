@@ -3,6 +3,7 @@ import { Game, Player, GameSettings, GameRound, Question, PlayerAnswer, PlayerCo
 import { GameService, RealtimeService, SyncService, SyncState } from '../services';
 import { saveGameSession, clearGameSession, getGameSession } from '../utils/sessionStorage';
 import { GAME_CONFIG } from '../constants/game';
+import { getErrorInfo } from '../utils/errorInfo';
 
 /**
  * Helper function to handle sync results and update store state.
@@ -1316,7 +1317,7 @@ export const useGameStore = create<GameState>((set, get) => ({
           try {
             await restoreDisplayRoundState(game.id, game.round_count);
           } catch (err) {
-            console.error('[rehydrate] Failed to restore display round state:', err);
+            console.error('[rehydrate] Failed to restore display round state:', getErrorInfo(err));
           }
         }
 

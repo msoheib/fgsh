@@ -6,6 +6,7 @@ import {
   GAME_CONFIG,
   getRoundMultiplier,
   isDisallowedQuestionCategory,
+  getErrorInfo,
 } from '@fakash/shared';
 
 interface CombinedAnswerOption {
@@ -376,7 +377,7 @@ export const Game: React.FC = () => {
       .maybeSingle();
 
     if (error) {
-      console.error('Failed to load stage category:', error);
+      console.error('Failed to load stage category:', getErrorInfo(error));
       return null;
     }
 
@@ -418,7 +419,7 @@ export const Game: React.FC = () => {
         isLoading: false,
       });
     } catch (err) {
-      console.error('Recovery failed:', err);
+      console.error('[Game] Recovery failed:', getErrorInfo(err));
     } finally {
       setIsRecovering(false);
     }

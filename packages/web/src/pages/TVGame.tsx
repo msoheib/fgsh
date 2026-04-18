@@ -10,6 +10,7 @@ import {
   getRoundMultiplier,
   GAME_CONFIG,
   GAME_AUDIO_CUE_DEFINITIONS,
+  getErrorInfo,
   type GameAudioCueKey,
 } from '@fakash/shared';
 import {
@@ -589,7 +590,7 @@ export const TVGame: React.FC = () => {
         isLoading: false,
       });
     } catch (err) {
-      console.error('TV recovery failed:', err);
+      console.error('[TVGame] Recovery failed:', getErrorInfo(err));
     } finally {
       setIsRecovering(false);
     }

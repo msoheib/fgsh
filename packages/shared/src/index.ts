@@ -16,6 +16,7 @@ export * from './utils/scoring';
 export * from './utils/avatars';
 export * from './utils/sessionStorage';
 export * from './utils/env';
+export * from './utils/errorInfo';
 
 // Services
 export * from './services';

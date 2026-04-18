@@ -478,7 +478,6 @@ export class RoundService {
       .select('*, question:questions(*)')
       .eq('game_id', gameId)
       .eq('round_number', data.current_round)
-      .order('updated_at', { ascending: false })
       .order('created_at', { ascending: false });
 
     if (roundError) {
