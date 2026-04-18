@@ -131,6 +131,7 @@ export const Game: React.FC = () => {
   } = useRoundStore();
 
   const [answerInput, setAnswerInput] = useState('');
+  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
   const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
   const [isForceAdvancing, setIsForceAdvancing] = useState(false);
@@ -149,8 +150,9 @@ export const Game: React.FC = () => {
   const warningBeepSecondRef = useRef<number | null>(null);
   const voteSubmitInFlightRef = useRef<boolean>(false);
   const pendingVoteTargetRef = useRef<string | null>(null);
-  const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? players[0]?.id ?? null;
+  const controllerPlayerId = game?.phase_captain_id ?? game?.host_id ?? players[0]?.id ?? null;
   const canControlFlow = !!currentPlayer && (controllerPlayerId ? currentPlayer.id === controllerPlayerId : true);
+  const hasLockedAnswer = hasSubmittedAnswer || isSubmittingAnswer;
   const revealEstimateSeconds = Math.ceil(
     ((Math.max(allAnswers.length, 2) * GAME_CONFIG.TV_REVEAL_STEP_MS) + GAME_CONFIG.TV_REVEAL_FINISH_BUFFER_MS) / 1000
   );
@@ -904,7 +906,10 @@ export const Game: React.FC = () => {
   }
 
   const handleSubmitAnswer = async () => {
-    if (!answerInput.trim()) return;
+    if (!answerInput.trim() || !currentPlayer || hasLockedAnswer) return;
+    if (isSubmittingAnswer) return;
+
+    setIsSubmittingAnswer(true);
     vibrate([50, 50, 50]); // Success pattern
     try {
       await submitAnswer(currentPlayer.id, answerInput);
@@ -912,6 +917,8 @@ export const Game: React.FC = () => {
     } catch (err) {
       console.error('Failed to submit:', err);
       vibrate([200, 100, 200]); // Error pattern
+    } finally {
+      setIsSubmittingAnswer(false);
     }
   };
 
@@ -1036,27 +1043,31 @@ export const Game: React.FC = () => {
         {/* ANSWERING PHASE */}
         {roundStatus === 'answering' && (
           <div>
-            <input
-              type="text"
-              value={answerInput}
-              onChange={(e) => setAnswerInput(e.target.value)}
-              placeholder="اكتب كذبتك..."
-              className="w-full p-3 mb-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all duration-200"
-              maxLength={GAME_CONFIG.MAX_ANSWER_LENGTH}
-              onKeyPress={(e) => e.key === 'Enter' && handleSubmitAnswer()}
-              autoFocus
-            />
-            <button
-              onClick={handleSubmitAnswer}
-              disabled={!answerInput.trim()}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50 active:scale-95 transition-transform duration-150"
-            >
-              {hasSubmittedAnswer ? 'تحديث الإجابة' : 'إرسال'}
-            </button>
-            {hasSubmittedAnswer && (
+            {!hasLockedAnswer ? (
+              <>
+                <input
+                  type="text"
+                  value={answerInput}
+                  onChange={(e) => setAnswerInput(e.target.value)}
+                  placeholder="اكتب كذبتك..."
+                  className="w-full p-3 mb-3 bg-white/10 border border-white/20 rounded-xl text-white placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-pink-500 focus:border-transparent transition-all duration-200"
+                  maxLength={GAME_CONFIG.MAX_ANSWER_LENGTH}
+                  onKeyPress={(e) => e.key === 'Enter' && handleSubmitAnswer()}
+                  autoFocus
+                  disabled={isSubmittingAnswer || !timerActive || timeRemaining === 0}
+                />
+                <button
+                  onClick={handleSubmitAnswer}
+                  disabled={!answerInput.trim() || isSubmittingAnswer || !timerActive || timeRemaining === 0}
+                  className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50 active:scale-95 transition-transform duration-150"
+                >
+                  {isSubmittingAnswer ? 'جارٍ الإرسال...' : 'إرسال'}
+                </button>
+              </>
+            ) : (
               <div className="text-center py-4">
                 <p className="text-lg">✅ تم حفظ إجابتك</p>
-                <p className="text-xs text-white/50 mt-1">يمكنك تعديلها حتى ينتهي الوقت</p>
+                <p className="text-xs text-white/50 mt-1">في انتظار اللاعبين الآخرين...</p>
               </div>
             )}
           </div>

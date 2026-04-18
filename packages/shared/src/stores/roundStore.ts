@@ -113,8 +113,8 @@ export const useRoundStore = create<RoundState>((set, get) => ({
 
   // Submit answer
   submitAnswer: async (playerId: string, answer: string) => {
-    const { currentRound, question } = get();
-    if (!currentRound || !question) return;
+    const { currentRound, question, hasSubmittedAnswer } = get();
+    if (!currentRound || !question || hasSubmittedAnswer) return;
 
     set({ isLoading: true });
     try {

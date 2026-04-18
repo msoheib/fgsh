@@ -22,6 +22,7 @@ export const GameScreen: React.FC = () => {
   } = useRoundStore();
 
   const [answerText, setAnswerText] = useState('');
+  const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
   const [selectedAnswerId, setSelectedAnswerId] = useState<string | null>(null);
   const [isRecovering, setIsRecovering] = useState(false);
   const [isForceAdvancing, setIsForceAdvancing] = useState(false);
@@ -31,9 +32,10 @@ export const GameScreen: React.FC = () => {
   const pendingVoteTargetRef = useRef<string | null>(null);
   const forceAdvanceKeyRef = useRef<string | null>(null);
   const phaseTimerInitializedRef = useRef<string | null>(null);
-  const controllerPlayerId = game?.host_id ?? game?.phase_captain_id ?? null;
+  const controllerPlayerId = game?.phase_captain_id ?? game?.host_id ?? null;
   const canControlFlow = !!currentPlayer && (!!controllerPlayerId ? currentPlayer.id === controllerPlayerId : false);
   const isVotingOpen = roundStatus === 'voting' && timerActive && timeRemaining > 0;
+  const hasLockedAnswer = hasSubmittedAnswer || isSubmittingAnswer;
 
   const getForceAdvanceWindow = useCallback((round = currentRound) => {
     if (!round) return null;
@@ -437,14 +439,17 @@ export const GameScreen: React.FC = () => {
   }
 
   const handleSubmitAnswer = async () => {
-    if (!answerText.trim() || !currentPlayer) {
+    if (!answerText.trim() || !currentPlayer || hasLockedAnswer || isSubmittingAnswer) {
       return;
     }
 
+    setIsSubmittingAnswer(true);
     try {
       await submitAnswer(currentPlayer.id, answerText.trim());
     } catch (err) {
       console.error('Failed to submit answer:', err);
+    } finally {
+      setIsSubmittingAnswer(false);
     }
   };
 
@@ -520,7 +525,7 @@ export const GameScreen: React.FC = () => {
         {/* Phase-based content */}
         {roundStatus === 'answering' && (
           <View style={styles.answerInputContainer}>
-            {!hasSubmittedAnswer ? (
+            {!hasLockedAnswer ? (
               <>
                 <TextInput
                   style={styles.answerInput}
@@ -531,18 +536,20 @@ export const GameScreen: React.FC = () => {
                   maxLength={100}
                   multiline
                   textAlign="right"
-                  editable={timerActive && timeRemaining > 0}
+                  editable={timerActive && timeRemaining > 0 && !isSubmittingAnswer}
                 />
                 <TouchableOpacity
                   style={[
                     styles.submitButton,
-                    (!answerText.trim() || !timerActive || timeRemaining === 0) && styles.submitButtonDisabled
+                    (!answerText.trim() || !timerActive || timeRemaining === 0 || isSubmittingAnswer) && styles.submitButtonDisabled
                   ]}
                   onPress={handleSubmitAnswer}
-                  disabled={!answerText.trim() || !timerActive || timeRemaining === 0}
+                  disabled={!answerText.trim() || !timerActive || timeRemaining === 0 || isSubmittingAnswer}
                   activeOpacity={0.8}
                 >
-                  <Text style={styles.submitButtonText}>إرسال الإجابة</Text>
+                  <Text style={styles.submitButtonText}>
+                    {isSubmittingAnswer ? 'جارٍ الإرسال...' : 'إرسال الإجابة'}
+                  </Text>
                 </TouchableOpacity>
               </>
             ) : (
