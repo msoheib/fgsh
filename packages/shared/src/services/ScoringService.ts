@@ -112,16 +112,27 @@ export class ScoringService {
       .from('players')
       .select('*')
       .eq('game_id', gameId)
-      .order('score', { ascending: false });
+      .order('score', { ascending: false })
+      .order('joined_at', { ascending: true })
+      .order('id', { ascending: true });
 
     if (error) {
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }
 
-    return (players || []).map((player, index) => ({
-      player,
-      rank: index + 1,
-    }));
+    let lastScore: number | null = null;
+    let lastRank = 0;
+
+    return (players || []).map((player, index) => {
+      const rank = lastScore === player.score ? lastRank : index + 1;
+      lastScore = player.score;
+      lastRank = rank;
+
+      return {
+        player,
+        rank,
+      };
+    });
   }
 
   /**

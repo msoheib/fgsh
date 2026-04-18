@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { BrowserRouter, Routes, Route, Navigate, useNavigate } from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
-import { initializeSupabase, useGameStore, useAuthStore, clearGameSession } from '@fakash/shared';
+import { initializeSupabase, useGameStore, useAuthStore } from '@fakash/shared';
 
 // Pages
 import { Home } from './pages/Home';
@@ -43,12 +43,18 @@ function AppContent() {
     // Check auth session
     checkSession();
 
+    if (window.location.pathname === '/join') {
+      console.log('ðŸŽ¯ User is on join page - preserving saved session');
+      useGameStore.setState({ rehydrationAttempted: true });
+      setIsRehydrating(false);
+      return;
+    }
+
     // If user is trying to join a new game, clear any old session and skip rehydration
     const currentPath = window.location.pathname;
     const searchParams = window.location.search;
     if (currentPath === '/join' || (currentPath === '/join' && searchParams)) {
       console.log('🎯 User is on join page - clearing old session');
-      clearGameSession();
       useGameStore.setState({ rehydrationAttempted: true });
       setIsRehydrating(false);
       return;

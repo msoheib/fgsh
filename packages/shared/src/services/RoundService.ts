@@ -81,13 +81,15 @@ export class RoundService {
     return [...items].sort(() => Math.random() - 0.5);
   }
 
-  private static async fetchRoundAnswers(roundId: string): Promise<PlayerAnswer[]> {
+  static async fetchRoundAnswers(roundId: string): Promise<PlayerAnswer[]> {
     const supabase = getSupabase();
 
     const { data, error } = await supabase
       .from('player_answers')
       .select('*, player:players(*)')
-      .eq('round_id', roundId);
+      .eq('round_id', roundId)
+      .order('submitted_at', { ascending: true })
+      .order('id', { ascending: true });
 
     if (error) {
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
@@ -522,7 +524,7 @@ export class RoundService {
 
     const answers = round.status === 'voting' || round.status === 'completed'
       ? await this.loadVotingAnswersWithRetry(round.id)
-      : [];
+      : await this.fetchRoundAnswers(round.id);
 
     const startTime = round.timer_starts_at
       ? new Date(round.timer_starts_at).getTime()

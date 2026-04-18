@@ -315,14 +315,14 @@ export class GameService {
       if (message.includes('game not found')) {
         throw new GameError(ErrorType.GAME_NOT_FOUND);
       }
-      if (message.includes('already')) {
+      if (message.includes('name already')) {
+        throw new GameError(ErrorType.DUPLICATE_NAME);
+      }
+      if (message.includes('game is already') || message.includes('already playing')) {
         throw new GameError(ErrorType.ALREADY_STARTED);
       }
       if (message.includes('full')) {
         throw new GameError(ErrorType.GAME_FULL);
-      }
-      if (message.includes('name already')) {
-        throw new GameError(ErrorType.DUPLICATE_NAME);
       }
       throw new GameError(ErrorType.CONNECTION_LOST, error.message);
     }

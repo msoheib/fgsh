@@ -163,10 +163,9 @@ export class SyncService {
     let playerVote: { answer_id: string } | null = null;
 
     if (currentRound) {
-      // Fetch answers for voting/completed phases
-      if (currentRound.status === 'voting' || currentRound.status === 'completed') {
-        answers = await RoundService.getRoundAnswers(currentRound.id);
-      }
+      answers = currentRound.status === 'voting' || currentRound.status === 'completed'
+        ? await RoundService.getRoundAnswers(currentRound.id)
+        : await RoundService.fetchRoundAnswers(currentRound.id);
 
       // Fetch player's answer and vote
       if (playerId) {

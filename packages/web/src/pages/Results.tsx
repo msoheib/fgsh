@@ -96,17 +96,34 @@ export const Results: React.FC = () => {
     );
   }
 
-  const winner = leaderboard[0];
+  const topPlayers = leaderboard.filter(({ rank }) => rank === 1);
+  const winner = topPlayers[0] || leaderboard[0];
+  const hasSharedWinner = topPlayers.length > 1;
   const canRestart = !!game && !!currentPlayer && currentPlayer.id === (game.host_id ?? game.phase_captain_id ?? currentPlayer.id);
 
   return (
     <div className="min-h-screen flex flex-col items-center justify-center p-4 bg-gradient-primary">
       <div className="bg-white/10 backdrop-blur rounded-2xl p-4 sm:p-6 w-full max-w-md max-h-[90vh] text-center overflow-hidden">
-        {winner && (
+        {winner && !hasSharedWinner && (
           <div className="mb-4 p-4 bg-yellow-500/20 rounded-xl border border-yellow-500/30">
             <p className="text-2xl mb-1">🏆</p>
             <p className="font-bold text-xl">{winner.player.user_name}</p>
             <p className="text-lg">{winner.player.score} نقطة</p>
+          </div>
+        )}
+
+        {hasSharedWinner && (
+          <div className="mb-4 p-4 bg-yellow-500/20 rounded-xl border border-yellow-500/30 text-center">
+            <p className="text-2xl mb-1">🏆</p>
+            <p className="font-bold text-xl mb-2">تعادل في الصدارة</p>
+            <div className="space-y-1">
+              {topPlayers.map(({ player }) => (
+                <p key={player.id} className="text-lg font-semibold">
+                  {player.user_name}
+                </p>
+              ))}
+            </div>
+            <p className="text-sm text-white/70 mt-2">{topPlayers[0].player.score} نقطة لكل لاعب</p>
           </div>
         )}
 

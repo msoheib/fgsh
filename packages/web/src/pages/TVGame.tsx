@@ -1254,9 +1254,6 @@ export const TVGame: React.FC = () => {
                         className="p-8 glass rounded-3xl text-center"
                       >
                         <p className="text-3xl font-bold">{answer.answer_text}</p>
-                        {answer.authorCount > 1 && (
-                          <p className="mt-3 text-base text-white/60">مقدمة من {answer.authorCount} لاعبين</p>
-                        )}
                       </AnimatedCard>
                     ))}
                   </AnimatedCardContainer>

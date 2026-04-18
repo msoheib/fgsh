@@ -211,10 +211,13 @@ export const Game: React.FC = () => {
       playerIds: Set<string>;
       hasCorrectAnswer: boolean;
       correctAnswerId: string | null;
+      canonicalAnswerId: string;
+      canonicalSubmittedAt: number;
     }>();
 
     for (const answer of allAnswers) {
       const key = getAnswerGroupKey(answer.answer_text, !!answer.is_correct);
+      const submittedAt = new Date(answer.submitted_at).getTime();
       if (!grouped.has(key)) {
         grouped.set(key, {
           id: answer.id,
@@ -223,10 +226,19 @@ export const Game: React.FC = () => {
           playerIds: new Set<string>(),
           hasCorrectAnswer: !!answer.is_correct,
           correctAnswerId: answer.is_correct ? answer.id : null,
+          canonicalAnswerId: answer.id,
+          canonicalSubmittedAt: submittedAt,
         });
       } else {
         const group = grouped.get(key)!;
         group.answerIds.push(answer.id);
+        if (
+          submittedAt < group.canonicalSubmittedAt ||
+          (submittedAt === group.canonicalSubmittedAt && answer.id < group.canonicalAnswerId)
+        ) {
+          group.canonicalAnswerId = answer.id;
+          group.canonicalSubmittedAt = submittedAt;
+        }
         if (answer.is_correct && !group.correctAnswerId) {
           group.hasCorrectAnswer = true;
           group.correctAnswerId = answer.id;
@@ -247,7 +259,7 @@ export const Game: React.FC = () => {
       answer_text: group.answer_text,
       answerIds: group.answerIds,
       playerIds: Array.from(group.playerIds),
-      voteTargetId: group.correctAnswerId || group.answerIds[0],
+      voteTargetId: group.correctAnswerId || group.canonicalAnswerId || group.answerIds[0],
       hasCorrectAnswer: group.hasCorrectAnswer,
     }));
   }, [allAnswers]);
@@ -410,7 +422,11 @@ export const Game: React.FC = () => {
         timeRemaining: snapshot.timeRemaining,
         timerActive: snapshot.timerActive,
         allAnswers: snapshot.answers,
-        playerAnswers: new Map(),
+        playerAnswers: new Map(
+          snapshot.answers
+            .filter((answer) => answer.player_id)
+            .map((answer) => [answer.player_id!, answer])
+        ),
         myAnswer: snapshot.myAnswer,
         hasSubmittedAnswer: snapshot.hasSubmittedAnswer,
         myVote: snapshot.myVote,
@@ -930,9 +946,9 @@ export const Game: React.FC = () => {
     }
   };
 
-  const handleSubmitVote = async (answerId: string) => {
+  const handleSubmitVote = async (answerId: string, groupAnswerIds: string[] = [answerId]) => {
     if (!isVotingOpen || !currentPlayer) return;
-    if (selectedAnswer === answerId) return;
+    if (selectedAnswer && groupAnswerIds.includes(selectedAnswer)) return;
 
     setSelectedAnswer(answerId);
     vibrate(50);
@@ -1068,11 +1084,11 @@ export const Game: React.FC = () => {
             <div className="space-y-2">
               {combinedAnswers.map((answer) => {
                 const isOwn = !answer.hasCorrectAnswer && answer.playerIds.includes(currentPlayer.id);
-                const isSelected = selectedAnswer === answer.voteTargetId;
+                const isSelected = selectedAnswer !== null && answer.answerIds.includes(selectedAnswer);
                 return (
                   <button
-                    key={answer.id}
-                    onClick={() => !isOwn && isVotingOpen && handleSubmitVote(answer.voteTargetId)}
+                    key={answer.voteTargetId}
+                    onClick={() => !isOwn && isVotingOpen && handleSubmitVote(answer.voteTargetId, answer.answerIds)}
                     disabled={!isVotingOpen || isOwn}
                     className={`w-full p-3 rounded-xl text-right active:scale-95 transition-all duration-150 ${
                       isSelected
@@ -1083,9 +1099,6 @@ export const Game: React.FC = () => {
                     }`}
                   >
                     {answer.answer_text}
-                    {!answer.hasCorrectAnswer && answer.playerIds.length > 1 && (
-                      <span className="text-xs opacity-60"> ({answer.playerIds.length} لاعبين)</span>
-                    )}
                     {isOwn && <span className="text-xs opacity-60"> (أنت)</span>}
                   </button>
                 );

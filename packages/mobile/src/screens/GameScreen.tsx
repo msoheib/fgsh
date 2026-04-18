@@ -56,11 +56,14 @@ export const GameScreen: React.FC = () => {
       playerIds: Set<string>;
       hasCorrectAnswer: boolean;
       correctAnswerId: string | null;
+      canonicalAnswerId: string;
+      canonicalSubmittedAt: number;
     }>();
 
     for (const answer of allAnswers) {
       // Keep truth and lies separate even if they share identical text.
       const key = `${answer.is_correct ? 'truth' : 'lie'}:${normalize(answer.answer_text)}`;
+      const submittedAt = new Date(answer.submitted_at).getTime();
       if (!grouped.has(key)) {
         grouped.set(key, {
           id: answer.id,
@@ -69,10 +72,19 @@ export const GameScreen: React.FC = () => {
           playerIds: new Set<string>(),
           hasCorrectAnswer: !!answer.is_correct,
           correctAnswerId: answer.is_correct ? answer.id : null,
+          canonicalAnswerId: answer.id,
+          canonicalSubmittedAt: submittedAt,
         });
       } else {
         const group = grouped.get(key)!;
         group.answerIds.push(answer.id);
+        if (
+          submittedAt < group.canonicalSubmittedAt ||
+          (submittedAt === group.canonicalSubmittedAt && answer.id < group.canonicalAnswerId)
+        ) {
+          group.canonicalAnswerId = answer.id;
+          group.canonicalSubmittedAt = submittedAt;
+        }
         if (answer.is_correct && !group.correctAnswerId) {
           group.hasCorrectAnswer = true;
           group.correctAnswerId = answer.id;
@@ -91,7 +103,8 @@ export const GameScreen: React.FC = () => {
     return Array.from(grouped.values()).map((group) => ({
       id: group.id,
       answer_text: group.answer_text,
-      voteTargetId: group.correctAnswerId || group.answerIds[0],
+      answerIds: group.answerIds,
+      voteTargetId: group.correctAnswerId || group.canonicalAnswerId || group.answerIds[0],
       playerIds: Array.from(group.playerIds),
       hasCorrectAnswer: group.hasCorrectAnswer,
     }));
@@ -135,7 +148,11 @@ export const GameScreen: React.FC = () => {
         timeRemaining: snapshot.timeRemaining,
         timerActive: snapshot.timerActive,
         allAnswers: snapshot.answers,
-        playerAnswers: new Map(),
+        playerAnswers: new Map(
+          snapshot.answers
+            .filter((answer) => answer.player_id)
+            .map((answer) => [answer.player_id!, answer])
+        ),
         myAnswer: snapshot.myAnswer,
         hasSubmittedAnswer: snapshot.hasSubmittedAnswer,
         myVote: snapshot.myVote,
@@ -461,12 +478,12 @@ export const GameScreen: React.FC = () => {
     }
   }, [currentPlayer, submitVote]);
 
-  const handleVote = async (answerId: string) => {
+  const handleVote = async (answerId: string, groupAnswerIds: string[] = [answerId]) => {
     if (!currentPlayer || !isVotingOpen) {
       return;
     }
 
-    if (selectedAnswerId === answerId) {
+    if (selectedAnswerId && groupAnswerIds.includes(selectedAnswerId)) {
       return;
     }
 
@@ -563,23 +580,21 @@ export const GameScreen: React.FC = () => {
             <ScrollView style={styles.answersList}>
               {combinedAnswers.map((answer) => {
                 const isOwnAnswer = !answer.hasCorrectAnswer && answer.playerIds.includes(currentPlayer?.id || '');
+                const isSelected = selectedAnswerId !== null && answer.answerIds.includes(selectedAnswerId);
                 return (
                   <TouchableOpacity
-                    key={answer.id}
+                    key={answer.voteTargetId}
                     style={[
                       styles.answerCard,
-                      selectedAnswerId === answer.voteTargetId && styles.answerCardSelected,
+                      isSelected && styles.answerCardSelected,
                       (!isVotingOpen || isOwnAnswer) && styles.answerCardDisabled,
                       isOwnAnswer && styles.ownAnswerCard,
                     ]}
-                    onPress={() => !isOwnAnswer && isVotingOpen && handleVote(answer.voteTargetId)}
+                    onPress={() => !isOwnAnswer && isVotingOpen && handleVote(answer.voteTargetId, answer.answerIds)}
                     disabled={!isVotingOpen || isOwnAnswer}
                     activeOpacity={0.7}
                   >
                     <Text style={styles.answerCardText}>{answer.answer_text}</Text>
-                    {!answer.hasCorrectAnswer && answer.playerIds.length > 1 && (
-                      <Text style={styles.answerMetaText}>({answer.playerIds.length} لاعبين)</Text>
-                    )}
                     {isOwnAnswer && (
                       <Text style={styles.ownAnswerLabel}>إجابتك</Text>
                     )}

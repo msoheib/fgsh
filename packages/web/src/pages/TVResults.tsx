@@ -198,7 +198,9 @@ export const TVResults: React.FC = () => {
     );
   }
 
-  const winner = leaderboard[0];
+  const topPlayers = leaderboard.filter(({ rank }) => rank === 1);
+  const winner = topPlayers[0] || leaderboard[0];
+  const hasSharedWinner = topPlayers.length > 1;
   const visibleLeaderboard = leaderboard.slice(0, layout.visiblePlayers);
 
   const getRankGradient = (rank: number) => {
@@ -228,7 +230,7 @@ export const TVResults: React.FC = () => {
           <Logo size="md" />
         </div>
 
-        {winner && (
+        {winner && !hasSharedWinner && (
           <motion.div
             initial={{ scale: 0, opacity: 0 }}
             animate={{ scale: 1, opacity: 1 }}
@@ -256,6 +258,34 @@ export const TVResults: React.FC = () => {
             </div>
             <div className="glass rounded-2xl px-6 py-2 inline-block">
               <p className="text-2xl font-black">{winner.player.score} نقطة</p>
+            </div>
+          </motion.div>
+        )}
+
+        {hasSharedWinner && (
+          <motion.div
+            initial={{ scale: 0, opacity: 0 }}
+            animate={{ scale: 1, opacity: 1 }}
+            transition={{ type: 'spring', stiffness: 180, damping: 18, delay: 0.3 }}
+            className="text-center mb-4"
+          >
+            <motion.div
+              initial={{ scale: 0, rotate: -180 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: 'spring', delay: 0.6 }}
+              className="text-5xl mb-2"
+            >
+              🏆
+            </motion.div>
+            <h1 className="text-3xl md:text-4xl font-extrabold mb-3">تعادل في الصدارة</h1>
+            <div className="flex flex-wrap items-center justify-center gap-4 mb-3">
+              {topPlayers.map(({ player }) => (
+                <div key={player.id} className="flex items-center gap-3 glass rounded-2xl px-4 py-3">
+                  <PlayerAvatar name={player.user_name} color={player.avatar_color} size="sm" />
+                  <p className="text-xl font-bold">{player.user_name}</p>
+                  <p className="text-lg font-black">{player.score} نقطة</p>
+                </div>
+              ))}
             </div>
           </motion.div>
         )}

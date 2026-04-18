@@ -5,6 +5,14 @@ import { saveGameSession, clearGameSession, getGameSession } from '../utils/sess
 import { GAME_CONFIG } from '../constants/game';
 import { getErrorInfo } from '../utils/errorInfo';
 
+function buildPlayerAnswerMap(answers: PlayerAnswer[]): Map<string, PlayerAnswer> {
+  return new Map(
+    answers
+      .filter((answer) => !!answer.player_id)
+      .map((answer) => [answer.player_id!, answer] as const)
+  );
+}
+
 /**
  * Helper function to handle sync results and update store state.
  * This is called by SyncService callbacks and provides a safety net
@@ -94,7 +102,115 @@ async function handleSyncResult(
         hasSubmittedVote: !!state.playerVote,
         myVote: state.playerVote?.answer_id || roundState.myVote,
       });
+
+      const syncStartTime = state.currentRound.timer_starts_at
+        ? new Date(state.currentRound.timer_starts_at).getTime()
+        : Date.now();
+      const syncElapsed = Math.floor((Date.now() - syncStartTime) / 1000);
+      const syncTimeRemaining = Math.max(0, state.currentRound.timer_duration - syncElapsed);
+      const syncQuestion = (state.currentRound as any).question || roundState.question;
+      const hasAnswerSnapshot = state.answers.length > 0;
+      const nextAnswers = hasAnswerSnapshot
+        ? state.answers
+        : roundChanged
+          ? []
+          : roundState.allAnswers;
+      const nextPlayerAnswers = hasAnswerSnapshot
+        ? buildPlayerAnswerMap(state.answers)
+        : roundChanged
+          ? new Map<string, PlayerAnswer>()
+          : roundState.playerAnswers;
+      const nextMyAnswer = state.playerAnswer
+        ? state.playerAnswer.answer_text
+        : roundChanged
+          ? null
+          : roundState.myAnswer;
+      const nextHasSubmittedAnswer = state.playerAnswer
+        ? true
+        : roundChanged
+          ? false
+          : roundState.hasSubmittedAnswer;
+      const nextMyVote = state.playerVote
+        ? state.playerVote.answer_id
+        : roundChanged
+          ? null
+          : roundState.myVote;
+      const nextHasSubmittedVote = state.playerVote
+        ? true
+        : roundChanged
+          ? false
+          : roundState.hasSubmittedVote;
+
+      useRoundStore.setState({
+        currentRound: state.currentRound,
+        question: syncQuestion,
+        roundNumber: state.currentRound.round_number,
+        roundStatus: state.currentRound.status,
+        timeRemaining: syncTimeRemaining,
+        timerActive: state.currentRound.status !== 'completed' && syncTimeRemaining > 0,
+        allAnswers: nextAnswers,
+        playerAnswers: nextPlayerAnswers,
+        totalRounds: state.game.round_count,
+        hasSubmittedAnswer: nextHasSubmittedAnswer,
+        myAnswer: nextMyAnswer,
+        hasSubmittedVote: nextHasSubmittedVote,
+        myVote: nextMyVote,
+      });
     }
+
+    const outerSyncStartTime = state.currentRound.timer_starts_at
+      ? new Date(state.currentRound.timer_starts_at).getTime()
+      : Date.now();
+    const outerSyncElapsed = Math.floor((Date.now() - outerSyncStartTime) / 1000);
+    const outerSyncTimeRemaining = Math.max(0, state.currentRound.timer_duration - outerSyncElapsed);
+    const outerSyncQuestion = (state.currentRound as any).question || roundState.question;
+    const outerHasAnswerSnapshot = state.answers.length > 0;
+    const outerNextAnswers = outerHasAnswerSnapshot
+      ? state.answers
+      : roundChanged
+        ? []
+        : roundState.allAnswers;
+    const outerNextPlayerAnswers = outerHasAnswerSnapshot
+      ? buildPlayerAnswerMap(state.answers)
+      : roundChanged
+        ? new Map<string, PlayerAnswer>()
+        : roundState.playerAnswers;
+    const outerNextMyAnswer = state.playerAnswer
+      ? state.playerAnswer.answer_text
+      : roundChanged
+        ? null
+        : roundState.myAnswer;
+    const outerNextHasSubmittedAnswer = state.playerAnswer
+      ? true
+      : roundChanged
+        ? false
+        : roundState.hasSubmittedAnswer;
+    const outerNextMyVote = state.playerVote
+      ? state.playerVote.answer_id
+      : roundChanged
+        ? null
+        : roundState.myVote;
+    const outerNextHasSubmittedVote = state.playerVote
+      ? true
+      : roundChanged
+        ? false
+        : roundState.hasSubmittedVote;
+
+    useRoundStore.setState({
+      currentRound: state.currentRound,
+      question: outerSyncQuestion,
+      roundNumber: state.currentRound.round_number,
+      roundStatus: state.currentRound.status,
+      timeRemaining: outerSyncTimeRemaining,
+      timerActive: state.currentRound.status !== 'completed' && outerSyncTimeRemaining > 0,
+      allAnswers: outerNextAnswers,
+      playerAnswers: outerNextPlayerAnswers,
+      totalRounds: state.game.round_count,
+      hasSubmittedAnswer: outerNextHasSubmittedAnswer,
+      myAnswer: outerNextMyAnswer,
+      hasSubmittedVote: outerNextHasSubmittedVote,
+      myVote: outerNextMyVote,
+    });
   }
 }
 
@@ -448,6 +564,34 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
       );
 
+      if (game.status === 'playing' && game.current_round > 0) {
+        const { RoundService } = await import('../services/RoundService');
+        try {
+          const snapshot = await RoundService.recoverRoundFromServer(game.id, player.id);
+          if (snapshot) {
+            const { useRoundStore } = await import('./roundStore');
+            useRoundStore.setState({
+              currentRound: snapshot.round,
+              question: snapshot.question,
+              roundNumber: snapshot.round.round_number,
+              roundStatus: snapshot.round.status,
+              timeRemaining: snapshot.timeRemaining,
+              timerActive: snapshot.timerActive,
+              allAnswers: snapshot.answers,
+              playerAnswers: buildPlayerAnswerMap(snapshot.answers),
+              myAnswer: snapshot.myAnswer,
+              hasSubmittedAnswer: snapshot.hasSubmittedAnswer,
+              myVote: snapshot.myVote,
+              hasSubmittedVote: snapshot.hasSubmittedVote,
+              totalRounds: game.round_count,
+              isLoading: false,
+            });
+          }
+        } catch (err) {
+          console.error('Failed to recover mid-game join snapshot:', err);
+        }
+      }
+
       // Save session to localStorage for reconnection after refresh
       saveGameSession({
         gameId: game.id,
@@ -691,17 +835,16 @@ export const useGameStore = create<GameState>((set, get) => ({
   joinGame: async (code: string, playerName: string) => {
     // Disconnect from old game if player was in one
     const oldSession = getGameSession();
-    if (oldSession && oldSession.playerId && oldSession.playerToken && oldSession.gameId) {
+    if (false) {
       try {
-        await GameService.leaveGameAsPlayer(oldSession.gameId, oldSession.playerId);
+        await Promise.resolve();
         console.log('🔌 Left old game with failover before joining new one');
       } catch (err) {
         console.error('Failed to disconnect from old game:', err);
       }
     }
 
-    // Clear any existing session before joining new game
-    clearGameSession();
+    // Preserve any existing session until the new join succeeds.
 
     set({ isLoading: true, error: null });
     try {
@@ -724,6 +867,20 @@ export const useGameStore = create<GameState>((set, get) => ({
         isLoading: false,
         rehydrationAttempted: true, // Fresh session - skip rehydrate guard
       });
+
+      if (oldSession && oldSession.gameId && oldSession.gameId !== game.id) {
+        try {
+          SyncService.stopSync(oldSession.gameId);
+          RealtimeService.unsubscribeFully(oldSession.gameId);
+
+          if (!oldSession.isDisplayMode && oldSession.playerId && oldSession.playerToken) {
+            await GameService.leaveGameAsPlayer(oldSession.gameId, oldSession.playerId);
+            console.log('🧹 Cleaned up previous player session after successful join');
+          }
+        } catch (err) {
+          console.error('Failed to clean up previous session after join:', err);
+        }
+      }
 
       // Subscribe to realtime updates
       RealtimeService.subscribeToGame(game.id, {
@@ -1028,7 +1185,7 @@ export const useGameStore = create<GameState>((set, get) => ({
                 timeRemaining,
                 timerActive: timeRemaining > 0,
                 allAnswers: answers,
-                playerAnswers: new Map(),
+                playerAnswers: buildPlayerAnswerMap(answers),
                 myAnswer: null,
                 hasSubmittedAnswer: false,
                 myVote: null,
@@ -1122,7 +1279,7 @@ export const useGameStore = create<GameState>((set, get) => ({
 
       const answers = currentRound.status === 'voting' || currentRound.status === 'completed'
         ? await RoundService.getRoundAnswers(currentRound.id)
-        : [];
+        : await RoundService.fetchRoundAnswers(currentRound.id);
 
       const startTime = currentRound.timer_starts_at
         ? new Date(currentRound.timer_starts_at).getTime()
@@ -1138,7 +1295,7 @@ export const useGameStore = create<GameState>((set, get) => ({
         timeRemaining,
         timerActive: currentRound.status !== 'completed' && timeRemaining > 0,
         allAnswers: answers,
-        playerAnswers: new Map(),
+        playerAnswers: buildPlayerAnswerMap(answers),
         myAnswer: null,
         hasSubmittedAnswer: false,
         myVote: null,
@@ -1160,6 +1317,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       let players = await GameService.getGamePlayers(game.id);
+      const totalRounds = game.round_count;
       const isDisplaySession = session.isDisplayMode || !session.playerId;
 
       if (isDisplaySession) {
@@ -1405,7 +1563,7 @@ export const useGameStore = create<GameState>((set, get) => ({
               roundStatus: round.status,
               timeRemaining: initialTimeRemaining,
               timerActive: initialTimeRemaining > 0,
-              totalRounds: game.round_count,
+              totalRounds,
               allAnswers: [],
               playerAnswers: new Map(),
               myAnswer: null,
@@ -1570,25 +1728,24 @@ export const useGameStore = create<GameState>((set, get) => ({
 
             const answers = currentRound.status === 'voting' || currentRound.status === 'completed'
               ? await RoundService.getRoundAnswers(currentRound.id)
-              : [];
+              : await RoundService.fetchRoundAnswers(currentRound.id);
 
-            import('./roundStore').then(({ useRoundStore }) => {
-              useRoundStore.setState({
-                currentRound,
-                question,
-                roundNumber: currentRound.round_number,
-                roundStatus: currentRound.status,
-                timeRemaining,
-                timerActive: timeRemaining > 0,
-                allAnswers: answers,
-                playerAnswers: new Map(),
-                myAnswer: null,
-                hasSubmittedAnswer: false,
-                myVote: null,
-                hasSubmittedVote: false,
-                totalRounds: game.round_count,
-                isLoading: false,
-              });
+            const { useRoundStore } = await import('./roundStore');
+            useRoundStore.setState({
+              currentRound,
+              question,
+              roundNumber: currentRound.round_number,
+              roundStatus: currentRound.status,
+              timeRemaining,
+              timerActive: timeRemaining > 0,
+              allAnswers: answers,
+              playerAnswers: buildPlayerAnswerMap(answers),
+              myAnswer: null,
+              hasSubmittedAnswer: false,
+              myVote: null,
+              hasSubmittedVote: false,
+              totalRounds: game.round_count,
+              isLoading: false,
             });
 
             console.log('✅ Round state restored');
@@ -1599,6 +1756,34 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
 
       console.log('✅ Session rehydrated successfully');
+      if (game.status === 'playing' && game.current_round > 0 && currentPlayer?.id) {
+        try {
+          const { RoundService } = await import('../services/RoundService');
+          const snapshot = await RoundService.recoverRoundFromServer(game.id, currentPlayer.id);
+          if (snapshot) {
+            const { useRoundStore } = await import('./roundStore');
+            useRoundStore.setState({
+              currentRound: snapshot.round,
+              question: snapshot.question,
+              roundNumber: snapshot.round.round_number,
+              roundStatus: snapshot.round.status,
+              timeRemaining: snapshot.timeRemaining,
+              timerActive: snapshot.timerActive,
+              allAnswers: snapshot.answers,
+              playerAnswers: buildPlayerAnswerMap(snapshot.answers),
+              myAnswer: snapshot.myAnswer,
+              hasSubmittedAnswer: snapshot.hasSubmittedAnswer,
+              myVote: snapshot.myVote,
+              hasSubmittedVote: snapshot.hasSubmittedVote,
+              totalRounds: game.round_count,
+              isLoading: false,
+            });
+          }
+        } catch (err) {
+          console.error('[rehydrate] Failed to recover player snapshot:', err);
+        }
+      }
+
       return true;
     } catch (error: any) {
       console.error('[rehydrate] Failed to rehydrate session:', error);
@@ -1660,7 +1845,6 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
     }
 
-    clearGameSession();
     get().reset();
   },
 

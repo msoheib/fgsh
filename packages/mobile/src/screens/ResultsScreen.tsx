@@ -19,7 +19,13 @@ export const ResultsScreen: React.FC = () => {
     );
   }
 
-  const sortedPlayers = [...players].sort((a, b) => b.score - a.score);
+  const sortedPlayers = [...players].sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    const joinedA = new Date(a.joined_at).getTime();
+    const joinedB = new Date(b.joined_at).getTime();
+    if (joinedA !== joinedB) return joinedA - joinedB;
+    return a.id.localeCompare(b.id);
+  });
   const isGameFinished = game.status === 'finished';
   const canAdvanceRound = isPhaseCaptain && !isGameFinished;
 

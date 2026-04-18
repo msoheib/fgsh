@@ -302,6 +302,22 @@ export class RealtimeService {
       }
     );
 
+    channel.on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'player_answers',
+      },
+      (payload) => {
+        this.recordEvent(gameId);
+        const answer = payload.new as PlayerAnswer;
+        if (!answer.is_correct && answer.player_id) {
+          callbacks.onAnswerSubmitted?.(answer.player_id, answer.round_id);
+        }
+      }
+    );
+
     // Listen to votes
     channel.on(
       'postgres_changes',
@@ -319,6 +335,20 @@ export class RealtimeService {
           answerId: vote.answer_id
         });
         // Pass round_id so callback can filter
+        callbacks.onVoteSubmitted?.(vote.voter_id, vote.round_id);
+      }
+    );
+
+    channel.on(
+      'postgres_changes',
+      {
+        event: 'UPDATE',
+        schema: 'public',
+        table: 'votes',
+      },
+      (payload) => {
+        this.recordEvent(gameId);
+        const vote = payload.new as Vote;
         callbacks.onVoteSubmitted?.(vote.voter_id, vote.round_id);
       }
     );
