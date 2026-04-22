@@ -6,17 +6,9 @@ import {
   GAME_CONFIG,
   getRoundMultiplier,
   isDisallowedQuestionCategory,
+  buildVotingOptions,
   getErrorInfo,
 } from '@fakash/shared';
-
-interface CombinedAnswerOption {
-  id: string;
-  answer_text: string;
-  answerIds: string[];
-  playerIds: string[];
-  voteTargetId: string;
-  hasCorrectAnswer: boolean;
-}
 
 const STAGE_START_ROUNDS = [1, 4, 7];
 
@@ -53,15 +45,6 @@ function getStagePointsSummary(roundNumber: number, roundCount: number): {
     truthPoints: GAME_CONFIG.POINTS.CORRECT_ANSWER * multiplier,
     label: multiplier === 3 ? 'النقاط تربل' : multiplier === 2 ? 'النقاط دبل' : 'النقاط الأساسية',
   };
-}
-
-function normalizeAnswerKey(value: string): string {
-  return value.trim().toLocaleLowerCase();
-}
-
-function getAnswerGroupKey(answerText: string, isCorrect: boolean): string {
-  // Keep truth and lies in separate groups even if text matches.
-  return `${isCorrect ? 'truth' : 'lie'}:${normalizeAnswerKey(answerText)}`;
 }
 
 function pickRandomItems<T>(items: T[], count: number): T[] {
@@ -205,66 +188,10 @@ export const Game: React.FC = () => {
     return { deadlineAt, eligibleAt };
   }, [canControlFlow, currentRound]);
 
-  const combinedAnswers = useMemo<CombinedAnswerOption[]>(() => {
-    const grouped = new Map<string, {
-      id: string;
-      answer_text: string;
-      answerIds: string[];
-      playerIds: Set<string>;
-      hasCorrectAnswer: boolean;
-      correctAnswerId: string | null;
-      canonicalAnswerId: string;
-      canonicalSubmittedAt: number;
-    }>();
-
-    for (const answer of allAnswers) {
-      const key = getAnswerGroupKey(answer.answer_text, !!answer.is_correct);
-      const submittedAt = new Date(answer.submitted_at).getTime();
-      if (!grouped.has(key)) {
-        grouped.set(key, {
-          id: answer.id,
-          answer_text: answer.answer_text,
-          answerIds: [answer.id],
-          playerIds: new Set<string>(),
-          hasCorrectAnswer: !!answer.is_correct,
-          correctAnswerId: answer.is_correct ? answer.id : null,
-          canonicalAnswerId: answer.id,
-          canonicalSubmittedAt: submittedAt,
-        });
-      } else {
-        const group = grouped.get(key)!;
-        group.answerIds.push(answer.id);
-        if (
-          submittedAt < group.canonicalSubmittedAt ||
-          (submittedAt === group.canonicalSubmittedAt && answer.id < group.canonicalAnswerId)
-        ) {
-          group.canonicalAnswerId = answer.id;
-          group.canonicalSubmittedAt = submittedAt;
-        }
-        if (answer.is_correct && !group.correctAnswerId) {
-          group.hasCorrectAnswer = true;
-          group.correctAnswerId = answer.id;
-        }
-      }
-
-      if (answer.is_correct && !answer.player_id) {
-        grouped.get(key)!.correctAnswerId = answer.id;
-      }
-
-      if (answer.player_id) {
-        grouped.get(key)!.playerIds.add(answer.player_id);
-      }
-    }
-
-    return Array.from(grouped.values()).map((group) => ({
-      id: group.id,
-      answer_text: group.answer_text,
-      answerIds: group.answerIds,
-      playerIds: Array.from(group.playerIds),
-      voteTargetId: group.correctAnswerId || group.canonicalAnswerId || group.answerIds[0],
-      hasCorrectAnswer: group.hasCorrectAnswer,
-    }));
-  }, [allAnswers]);
+  const combinedAnswers = useMemo(
+    () => buildVotingOptions(currentRound?.id ?? '', allAnswers),
+    [allAnswers, currentRound?.id]
+  );
 
   const currentPlayerAlsoWroteTruth = useMemo(() => (
     !!currentPlayer && allAnswers.some((answer) => answer.is_correct && answer.player_id === currentPlayer.id)

@@ -15,6 +15,7 @@ export * from './utils/gameCode';
 export * from './utils/scoring';
 export * from './utils/avatars';
 export * from './utils/sessionStorage';
+export * from './utils/votingOptions';
 export * from './utils/env';
 export * from './utils/errorInfo';
 

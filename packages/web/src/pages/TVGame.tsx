@@ -10,6 +10,7 @@ import {
   getRoundMultiplier,
   GAME_CONFIG,
   GAME_AUDIO_CUE_DEFINITIONS,
+  buildVotingOptions,
   getErrorInfo,
   type GameAudioCueKey,
 } from '@fakash/shared';
@@ -165,14 +166,6 @@ interface TvAudioCueRow {
   cue_key: GameAudioCueKey;
   audio_url: string | null;
   is_active: boolean;
-}
-
-function normalizeAnswerKey(value: string): string {
-  return value.trim().toLocaleLowerCase();
-}
-
-function getAnswerGroupKey(answerText: string, isCorrect: boolean): string {
-  return `${isCorrect ? 'truth' : 'lie'}:${normalizeAnswerKey(answerText)}`;
 }
 
 function playTvWarningBeep() {
@@ -423,18 +416,10 @@ export const TVGame: React.FC = () => {
     return currentRound.status === 'completed' && expectedRoundNumber > currentRound.round_number;
   }, [currentRound?.id, currentRound?.round_number, currentRound?.status, expectedRoundNumber, game?.id, game?.status]);
 
-  const combinedAnswers = useMemo(() => {
-    const grouped = new Map<string, { id: string; answer_text: string; authorCount: number }>();
-    for (const answer of allAnswers) {
-      const key = getAnswerGroupKey(answer.answer_text, !!answer.is_correct);
-      if (!grouped.has(key)) {
-        grouped.set(key, { id: answer.id, answer_text: answer.answer_text, authorCount: answer.player_id ? 1 : 0 });
-      } else if (answer.player_id) {
-        grouped.get(key)!.authorCount += 1;
-      }
-    }
-    return Array.from(grouped.values());
-  }, [allAnswers]);
+  const combinedAnswers = useMemo(
+    () => buildVotingOptions(currentRound?.id ?? '', allAnswers),
+    [allAnswers, currentRound?.id]
+  );
 
   const playTvCue = useCallback(async (cueKey: GameAudioCueKey): Promise<boolean> => {
     if (!audioEnabled) return false;

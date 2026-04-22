@@ -13,6 +13,18 @@ function buildPlayerAnswerMap(answers: PlayerAnswer[]): Map<string, PlayerAnswer
   );
 }
 
+function getAnswerSignature(answers: PlayerAnswer[]): string {
+  return answers
+    .map((answer) => [
+      answer.id,
+      answer.answer_text,
+      answer.is_correct ? '1' : '0',
+      answer.player_id ?? '',
+      answer.submitted_at,
+    ].join(':'))
+    .join('|');
+}
+
 /**
  * Helper function to handle sync results and update store state.
  * This is called by SyncService callbacks and provides a safety net
@@ -69,7 +81,46 @@ async function handleSyncResult(
       roundState.currentRound?.status !== state.currentRound.status ||
       roundState.roundStatus !== state.currentRound.status;
     
-    if (roundChanged) {
+    const syncQuestion = (state.currentRound as any).question || roundState.question;
+    const currentAnswersSignature = getAnswerSignature(roundState.allAnswers);
+    const nextAnswersSignature = state.answers.length > 0
+      ? getAnswerSignature(state.answers)
+      : roundChanged
+        ? ''
+        : currentAnswersSignature;
+    const nextMyAnswer = state.playerAnswer
+      ? state.playerAnswer.answer_text
+      : roundChanged
+        ? null
+        : roundState.myAnswer;
+    const nextHasSubmittedAnswer = state.playerAnswer
+      ? true
+      : roundChanged
+        ? false
+        : roundState.hasSubmittedAnswer;
+    const nextMyVote = state.playerVote
+      ? state.playerVote.answer_id
+      : roundChanged
+        ? null
+        : roundState.myVote;
+    const nextHasSubmittedVote = state.playerVote
+      ? true
+      : roundChanged
+        ? false
+        : roundState.hasSubmittedVote;
+    const shouldUpdateRoundState =
+      roundChanged ||
+      roundState.roundNumber !== state.currentRound.round_number ||
+      roundState.totalRounds !== state.game.round_count ||
+      roundState.roundStatus !== state.currentRound.status ||
+      roundState.question?.id !== syncQuestion?.id ||
+      nextAnswersSignature !== currentAnswersSignature ||
+      roundState.myAnswer !== nextMyAnswer ||
+      roundState.hasSubmittedAnswer !== nextHasSubmittedAnswer ||
+      roundState.myVote !== nextMyVote ||
+      roundState.hasSubmittedVote !== nextHasSubmittedVote;
+
+    if (shouldUpdateRoundState) {
       console.log('🔄 Sync detected round state change:', {
         oldRoundId: roundState.currentRound?.id,
         newRoundId: state.currentRound.id,
@@ -158,6 +209,7 @@ async function handleSyncResult(
       });
     }
 
+    if (shouldUpdateRoundState) {
     const outerSyncStartTime = state.currentRound.timer_starts_at
       ? new Date(state.currentRound.timer_starts_at).getTime()
       : Date.now();
@@ -211,6 +263,7 @@ async function handleSyncResult(
       hasSubmittedVote: outerNextHasSubmittedVote,
       myVote: outerNextMyVote,
     });
+    }
   }
 }
 

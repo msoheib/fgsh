@@ -77,10 +77,6 @@ export class RoundService {
     return `${isCorrect ? 'truth' : 'lie'}:${this.normalizeAnswerKey(value)}`;
   }
 
-  private static shuffleAnswers<T>(items: T[]): T[] {
-    return [...items].sort(() => Math.random() - 0.5);
-  }
-
   static async fetchRoundAnswers(roundId: string): Promise<PlayerAnswer[]> {
     const supabase = getSupabase();
 
@@ -111,7 +107,7 @@ export class RoundService {
 
       const hasSystemTruth = answers.some((answer) => answer.is_correct && !answer.player_id);
       if (answers.length > 0 && hasSystemTruth) {
-        return this.shuffleAnswers(answers);
+        return answers;
       }
 
       if (attempt < maxRetries) {
@@ -119,7 +115,7 @@ export class RoundService {
       }
     }
 
-    return this.shuffleAnswers(lastAnswers);
+    return lastAnswers;
   }
 
   /**
@@ -226,7 +222,7 @@ export class RoundService {
   }
 
   /**
-   * Get all answers for a round (shuffled for voting)
+   * Get all answers for a round.
    */
   static async getRoundAnswers(roundId: string): Promise<PlayerAnswer[]> {
     return this.loadVotingAnswersWithRetry(roundId);
