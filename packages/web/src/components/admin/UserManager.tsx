@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { AdminService, type AdminUser } from '@fakash/shared';
+import { AdminService, formatGregorianDate, type AdminUser } from '@fakash/shared';
 import { GradientButton } from '../GradientButton';
 import { LoadingSpinner } from '../LoadingSpinner';
 import toast from 'react-hot-toast';
@@ -65,14 +65,6 @@ export const UserManager: React.FC = () => {
     } catch (error) {
       toast.error('حدث خطأ أثناء التحديث');
     }
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('ar-SA', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-    });
   };
 
   // Filter users
@@ -205,7 +197,7 @@ export const UserManager: React.FC = () => {
                     {user.games_created_count || 0}
                   </td>
                   <td className="py-3 px-4 text-white/60 text-sm">
-                    {formatDate(user.created_at)}
+                    {formatGregorianDate(user.created_at, { month: 'short' })}
                   </td>
                   <td className="py-3 px-4">
                     {user.is_banned ? (

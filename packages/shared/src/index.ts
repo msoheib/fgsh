@@ -18,6 +18,7 @@ export * from './utils/sessionStorage';
 export * from './utils/votingOptions';
 export * from './utils/env';
 export * from './utils/errorInfo';
+export * from './utils/dateFormatting';
 
 // Services
 export * from './services';

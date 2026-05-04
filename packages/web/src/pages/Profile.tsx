@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useAuthStore, HostProfileService, PaymentService, type HostProfile } from '@fakash/shared';
+import { useAuthStore, HostProfileService, PaymentService, formatGregorianDate, type HostProfile } from '@fakash/shared';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
 import { LoadingSpinner } from '../components/LoadingSpinner';
@@ -69,14 +69,6 @@ export const Profile: React.FC = () => {
         {badge.label}
       </span>
     );
-  };
-
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('ar-SA', {
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
   };
 
   const formatAmount = (amount: number, currency: string) => {
@@ -150,7 +142,7 @@ export const Profile: React.FC = () => {
                 <div>
                   <p className="text-sm text-white/60 mb-1">تاريخ الانتهاء</p>
                   <p className="font-semibold">
-                    {formatDate(profile.subscription_expires_at)}
+                    {formatGregorianDate(profile.subscription_expires_at)}
                   </p>
                 </div>
               )}
@@ -162,7 +154,7 @@ export const Profile: React.FC = () => {
 
               <div>
                 <p className="text-sm text-white/60 mb-1">تاريخ الانضمام</p>
-                <p className="font-semibold">{formatDate(profile.created_at)}</p>
+                <p className="font-semibold">{formatGregorianDate(profile.created_at)}</p>
               </div>
             </div>
           </div>
@@ -206,7 +198,7 @@ export const Profile: React.FC = () => {
                       {payment.plan_id === 'lifetime' && 'الوصول الدائم'}
                     </p>
                     <p className="text-sm text-white/60">
-                      {formatDate(payment.paid_at || payment.created_at)}
+                      {formatGregorianDate(payment.paid_at || payment.created_at)}
                     </p>
                   </div>
 
