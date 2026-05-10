@@ -1,0 +1,57 @@
+[
+    {
+        "Run":  "run-01",
+        "Status":  "PASS",
+        "ExitCode":  0,
+        "GameCode":  "LKJDVD",
+        "Started":  "2026-05-08T23:54:23",
+        "Completed":  "2026-05-08T23:55:53",
+        "DurationSeconds":  90.3,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-01\\stress-8-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-01\\playwright-console.log"
+    },
+    {
+        "Run":  "run-02",
+        "Status":  "PASS",
+        "ExitCode":  0,
+        "GameCode":  "5ZONTG",
+        "Started":  "2026-05-08T23:55:53",
+        "Completed":  "2026-05-08T23:57:23",
+        "DurationSeconds":  89.5,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-02\\stress-8-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-02\\playwright-console.log"
+    },
+    {
+        "Run":  "run-03",
+        "Status":  "PASS",
+        "ExitCode":  0,
+        "GameCode":  "JMLHQG",
+        "Started":  "2026-05-08T23:57:23",
+        "Completed":  "2026-05-08T23:58:51",
+        "DurationSeconds":  88,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-03\\stress-8-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-03\\playwright-console.log"
+    },
+    {
+        "Run":  "run-04",
+        "Status":  "PASS",
+        "ExitCode":  0,
+        "GameCode":  "Y02AEC",
+        "Started":  "2026-05-08T23:58:51",
+        "Completed":  "2026-05-09T00:00:20",
+        "DurationSeconds":  89,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-04\\stress-8-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-04\\playwright-console.log"
+    },
+    {
+        "Run":  "run-05",
+        "Status":  "PASS",
+        "ExitCode":  0,
+        "GameCode":  "9I33H6",
+        "Started":  "2026-05-09T00:00:20",
+        "Completed":  "2026-05-09T00:01:49",
+        "DurationSeconds":  89.2,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-05\\stress-8-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-8-players-2026-05-08-live-5x-20260508-235423\\run-05\\playwright-console.log"
+    }
+]

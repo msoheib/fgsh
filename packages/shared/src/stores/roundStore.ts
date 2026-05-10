@@ -145,7 +145,7 @@ export const useRoundStore = create<RoundState>((set, get) => ({
   // See: supabase/migrations/add_server_side_phase_transitions.sql
   // - advance_round_if_ready() moves answering -> voting once answer quorum is met
   // - force_advance_round() RPC is called by phase captain when the timer expires
-  // - voting remains open until timeout so players can revise their votes
+  // - advance_round_if_ready() now completes voting once the confirmed vote quorum is met
 
   // Submit vote
   submitVote: async (playerId: string, answerId: string) => {
@@ -154,14 +154,14 @@ export const useRoundStore = create<RoundState>((set, get) => ({
 
     set({ isLoading: true });
     try {
-      await RoundService.submitVote(currentRound.id, playerId, answerId);
+      const persistedVote = await RoundService.submitVote(currentRound.id, playerId, answerId);
 
       // Immediately add to playerVotes Map
       const { addVote } = get();
       addVote(playerId);
 
       set({
-        myVote: answerId,
+        myVote: persistedVote.answer_id,
         hasSubmittedVote: true,
         isLoading: false,
       });

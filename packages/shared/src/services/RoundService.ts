@@ -9,6 +9,7 @@ import {
 } from '../types';
 import { validateAnswer, sanitizeText } from '../utils/validation';
 import { getGameSession } from '../utils/sessionStorage';
+import { buildVotingOptions } from '../utils/votingOptions';
 
 export class RoundService {
   static getRoundStatusRank(status: string): number {
@@ -261,7 +262,16 @@ export class RoundService {
       throw new GameError(ErrorType.CONNECTION_LOST, castVoteError.message);
     }
 
-    return (Array.isArray(castVoteData) ? castVoteData[0] : castVoteData) as Vote;
+    const persistedVote = (Array.isArray(castVoteData) ? castVoteData[0] : castVoteData) as Vote;
+
+    console.info('[VoteAudit] cast_vote response', {
+      roundId,
+      voterId,
+      requestedAnswerId: answerId,
+      storedAnswerId: persistedVote?.answer_id,
+    });
+
+    return persistedVote;
   }
 
   /**
@@ -305,7 +315,7 @@ export class RoundService {
     // Fetch answers with player info
     const { data: answers, error: answersError } = await supabase
       .from('player_answers')
-      .select('id, answer_text, is_correct, player_id, player:players(id, user_name)')
+      .select('id, round_id, answer_text, is_correct, player_id, submitted_at, player:players(id, user_name)')
       .eq('round_id', roundId);
 
     if (answersError) {
@@ -322,11 +332,13 @@ export class RoundService {
       throw new GameError(ErrorType.CONNECTION_LOST, votesError.message);
     }
 
+    const answerRows = (answers || []) as unknown as PlayerAnswer[];
+    const votingOptions = buildVotingOptions(roundId, answerRows);
     const normalize = (value: string) => value.trim().toLocaleLowerCase();
     const truthAnswerKeys = new Set(
-      (answers || [])
-        .filter((answer) => !!answer.is_correct)
-        .map((answer) => normalize(answer.answer_text))
+      votingOptions
+        .filter((option) => option.hasCorrectAnswer)
+        .map((option) => normalize(option.answer_text))
     );
 
     // Group votes by answer_id
@@ -341,6 +353,32 @@ export class RoundService {
           id: (vote.voter as any).id,
           name: (vote.voter as any).user_name,
         });
+      }
+    }
+
+    const hiddenTruthMatchingLieOptions = new Map<string, {
+      authorNames: Set<string>;
+      voters: Map<string, { id: string; name: string }>;
+    }>();
+
+    for (const ans of answerRows) {
+      if (ans.is_correct || !truthAnswerKeys.has(normalize(ans.answer_text))) continue;
+
+      const key = normalize(ans.answer_text);
+      if (!hiddenTruthMatchingLieOptions.has(key)) {
+        hiddenTruthMatchingLieOptions.set(key, {
+          authorNames: new Set<string>(),
+          voters: new Map<string, { id: string; name: string }>(),
+        });
+      }
+
+      const hiddenGroup = hiddenTruthMatchingLieOptions.get(key)!;
+      if (ans.player) {
+        hiddenGroup.authorNames.add((ans.player as any).user_name);
+      }
+      const voters = votesByAnswer.get(ans.id) || [];
+      for (const voter of voters) {
+        hiddenGroup.voters.set(voter.id, voter);
       }
     }
 
@@ -397,11 +435,11 @@ export class RoundService {
       const isSystemLie = !group.isCorrect && group.authorIds.size === 0;
       const authorNames = Array.from(group.authorNames);
       const matchingLieAuthorNames = group.isCorrect
-        ? Array.from(grouped.get(`lie:${normalize(group.text)}`)?.authorNames || [])
+        ? Array.from(hiddenTruthMatchingLieOptions.get(normalize(group.text))?.authorNames || [])
         : [];
 
       if (group.isCorrect) {
-        const matchingLieGroup = grouped.get(`lie:${normalize(group.text)}`);
+        const matchingLieGroup = hiddenTruthMatchingLieOptions.get(normalize(group.text));
         if (matchingLieGroup) {
           for (const voter of matchingLieGroup.voters.values()) {
             group.voters.set(voter.id, voter);
@@ -432,6 +470,20 @@ export class RoundService {
       if (a.isCorrect && !b.isCorrect) return 1;
       if (!a.isCorrect && b.isCorrect) return -1;
       return b.voteCount - a.voteCount; // More votes first
+    });
+
+    console.info('[VoteAudit] reveal attribution', {
+      roundId,
+      storedVotes: (votes || []).map((vote) => ({
+        voterId: vote.voter_id,
+        answerId: vote.answer_id,
+      })),
+      revealGroups: revealAnswers.map((answer) => ({
+        answerId: answer.id,
+        text: answer.text,
+        voteCount: answer.voteCount,
+        voterIds: answer.voters.map((voter) => voter.id),
+      })),
     });
 
     return { answers: revealAnswers };

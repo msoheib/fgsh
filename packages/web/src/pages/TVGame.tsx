@@ -168,6 +168,12 @@ interface TvAudioCueRow {
   is_active: boolean;
 }
 
+interface PendingCategoryPrompt {
+  roundNumber: number;
+  options: string[];
+  selectedCategory: string | null;
+}
+
 function playTvWarningBeep() {
   try {
     const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -188,6 +194,12 @@ function playTvWarningBeep() {
   } catch {
     // Ignore browser autoplay restrictions.
   }
+}
+
+const STAGE_START_ROUNDS = [1, 4, 7];
+
+function isStageStartRound(roundNumber: number): boolean {
+  return STAGE_START_ROUNDS.includes(roundNumber);
 }
 
 function getStageInfo(roundNumber: number): { stageNumber: number; questionInStage: number; totalQuestionsInStage: number } {
@@ -368,9 +380,7 @@ export const TVGame: React.FC = () => {
   const [currentRevealIndex, setCurrentRevealIndex] = useState(0);
   const [revealComplete, setRevealComplete] = useState(false);
   const [categoryWaitSecondsLeft, setCategoryWaitSecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
-  const [categoryPromptRoundNumber, setCategoryPromptRoundNumber] = useState<number | null>(null);
-  const [categoryOptions, setCategoryOptions] = useState<string[]>([]);
-  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
+  const [pendingCategoryPrompt, setPendingCategoryPrompt] = useState<PendingCategoryPrompt | null>(null);
   const [audioCuesByKey, setAudioCuesByKey] = useState<Record<string, TvAudioCueRow>>({});
   const [audioBlocked, setAudioBlocked] = useState(false);
   const [audioEnabled, setAudioEnabled] = useState(true);
@@ -383,23 +393,29 @@ export const TVGame: React.FC = () => {
   const previousPhaseKeyRef = useRef<string | null>(null);
   const categoryPromptPlayedRef = useRef<boolean>(false);
   const pendingCueKeyRef = useRef<GameAudioCueKey | null>(null);
+  const lastSeenRoundNumberRef = useRef<number | null>(null);
   const confetti = useConfetti();
   const stageInfo = currentRound ? getStageInfo(currentRound.round_number) : null;
-  const displayRoundNumber = categoryPromptRoundNumber ?? Math.max(game?.current_round ?? 0, 1);
+  const displayRoundNumber = pendingCategoryPrompt?.roundNumber ?? Math.max(game?.current_round ?? 0, 1);
   const expectedRoundNumber = game?.current_round ?? 0;
   const categoryStageInfo = getStageInfo(displayRoundNumber);
   const categoryStagePoints = game ? getStagePointsSummary(displayRoundNumber, game.round_count) : null;
-  const isBetweenRounds = !!game
-    && game.status === 'playing'
-    && (
-      !currentRound
-      || currentRound.status === 'completed'
-      || currentRound.round_number < game.current_round
-    );
+  const hasLocalCurrentRound = !!game &&
+    !!currentRound &&
+    !!question &&
+    currentRound.round_number === game.current_round;
+  const hasSeenCurrentRound = !!game && lastSeenRoundNumberRef.current === game.current_round;
   const shouldShowCategorySelectionWait = !!game
-    && isBetweenRounds
-    && categoryPromptRoundNumber !== null
-    && categoryPromptRoundNumber <= game.round_count;
+    && game.status === 'playing'
+    && game.current_round > 0
+    && game.current_round <= game.round_count
+    && isStageStartRound(game.current_round)
+    && !!pendingCategoryPrompt
+    && pendingCategoryPrompt.roundNumber === game.current_round
+    && pendingCategoryPrompt.selectedCategory === null
+    && pendingCategoryPrompt.options.length > 0
+    && !hasLocalCurrentRound
+    && !hasSeenCurrentRound;
   const roundStateIsStale = useMemo(() => {
     if (!game || game.status !== 'playing' || expectedRoundNumber <= 0) {
       return false;
@@ -580,6 +596,21 @@ export const TVGame: React.FC = () => {
       setIsRecovering(false);
     }
   }, [game, isRecovering]);
+
+  useEffect(() => {
+    lastSeenRoundNumberRef.current = null;
+    setPendingCategoryPrompt(null);
+  }, [game?.id]);
+
+  useEffect(() => {
+    if (!game || game.status !== 'playing' || !currentRound || !question) return;
+    if (currentRound.round_number !== game.current_round) return;
+
+    lastSeenRoundNumberRef.current = currentRound.round_number;
+    setPendingCategoryPrompt((prompt) => (
+      prompt?.roundNumber === currentRound.round_number ? null : prompt
+    ));
+  }, [currentRound?.id, currentRound?.round_number, game?.current_round, game?.status, question?.id]);
 
   // Load TV narration cue config (admin-managed).
   useEffect(() => {
@@ -833,14 +864,13 @@ export const TVGame: React.FC = () => {
         localRoundNumber: currentRound?.round_number ?? null,
         localRoundStatus: currentRound?.status ?? null,
         hasQuestion: !!question,
-        categoryPromptRoundNumber,
+        pendingCategoryPromptRoundNumber: pendingCategoryPrompt?.roundNumber ?? null,
       });
       void recoverRoundState();
     }, delayMs);
 
     return () => clearTimeout(timer);
   }, [
-    categoryPromptRoundNumber,
     currentRound?.id,
     currentRound?.round_number,
     currentRound?.status,
@@ -849,6 +879,7 @@ export const TVGame: React.FC = () => {
     game?.status,
     isRecovering,
     question?.id,
+    pendingCategoryPrompt?.roundNumber,
     recoverRoundState,
     roundStateIsStale,
     shouldShowCategorySelectionWait,
@@ -864,7 +895,7 @@ export const TVGame: React.FC = () => {
     }, 1000);
 
     return () => clearInterval(interval);
-  }, [shouldShowCategorySelectionWait, game?.id, categoryPromptRoundNumber]);
+  }, [shouldShowCategorySelectionWait, game?.id, pendingCategoryPrompt?.roundNumber]);
 
   // Narration cue for category selection prompt.
   useEffect(() => {
@@ -893,7 +924,7 @@ export const TVGame: React.FC = () => {
 
   useEffect(() => {
     categoryPromptPlayedRef.current = false;
-  }, [categoryPromptRoundNumber]);
+  }, [pendingCategoryPrompt?.roundNumber]);
 
   // Narration cue for major TV phase transitions.
   useEffect(() => {
@@ -933,13 +964,10 @@ export const TVGame: React.FC = () => {
     };
   }, []);
 
-  // Keep TV synced with the next pending category prompt, even if game.current_round
-  // on the TV lags briefly behind the captain/client state.
+  // Keep TV synced with the exact pending prompt for the current round only.
   useEffect(() => {
     if (!game || game.status !== 'playing') {
-      setCategoryPromptRoundNumber(null);
-      setCategoryOptions([]);
-      setSelectedCategory(null);
+      setPendingCategoryPrompt(null);
       return;
     }
 
@@ -947,22 +975,53 @@ export const TVGame: React.FC = () => {
 
     const syncCategoryPrompt = async () => {
       try {
+        if (
+          game.current_round <= 0 ||
+          game.current_round > game.round_count ||
+          !isStageStartRound(game.current_round)
+        ) {
+          setPendingCategoryPrompt(null);
+          return;
+        }
+
+        if (hasLocalCurrentRound || hasSeenCurrentRound) {
+          setPendingCategoryPrompt(null);
+          return;
+        }
+
         const { getSupabase } = await import('@fakash/shared');
         const supabase = getSupabase();
-        const currentRoundNumber = currentRound?.round_number ?? 0;
-        const minimumPromptRoundNumber = currentRound
-          ? currentRound.status === 'completed'
-            ? currentRoundNumber + 1
-            : currentRoundNumber
-          : Math.max(game.current_round, 1);
+
+        const { data: roundRows, error: roundError } = await supabase
+          .from('game_rounds')
+          .select('id')
+          .eq('game_id', game.id)
+          .eq('round_number', game.current_round)
+          .limit(1);
+
+        if (roundError) {
+          console.warn('Failed to check TV category prompt round existence:', roundError);
+          return;
+        }
+
+        if (isCancelled) return;
+
+        if ((roundRows || []).length > 0) {
+          lastSeenRoundNumberRef.current = game.current_round;
+          setPendingCategoryPrompt(null);
+          if (!hasLocalCurrentRound) {
+            void recoverRoundState();
+          }
+          return;
+        }
 
         const { data, error } = await supabase
           .from('game_category_prompts')
           .select('round_number, options, selected_category')
           .eq('game_id', game.id)
-          .gte('round_number', minimumPromptRoundNumber)
-          .order('round_number', { ascending: true })
-          .limit(1);
+          .eq('round_number', game.current_round)
+          .is('selected_category', null)
+          .maybeSingle();
 
         if (error && error.code !== '42P01') {
           console.warn('Failed to sync TV category prompt:', error);
@@ -971,11 +1030,9 @@ export const TVGame: React.FC = () => {
 
         if (isCancelled) return;
 
-        const promptRow = Array.isArray(data) ? data[0] : null;
+        const promptRow = data || null;
         if (!promptRow) {
-          setCategoryPromptRoundNumber(null);
-          setCategoryOptions([]);
-          setSelectedCategory(null);
+          setPendingCategoryPrompt(null);
           return;
         }
 
@@ -991,9 +1048,16 @@ export const TVGame: React.FC = () => {
             ? (promptRow as any).selected_category
             : null;
 
-        setCategoryPromptRoundNumber((promptRow as any).round_number ?? null);
-        setCategoryOptions(normalizedOptions);
-        setSelectedCategory(normalizedSelectedCategory);
+        if (normalizedSelectedCategory !== null || normalizedOptions.length === 0) {
+          setPendingCategoryPrompt(null);
+          return;
+        }
+
+        setPendingCategoryPrompt({
+          roundNumber: (promptRow as any).round_number ?? game.current_round,
+          options: normalizedOptions,
+          selectedCategory: normalizedSelectedCategory,
+        });
       } catch (err) {
         if (!isCancelled) {
           console.warn('Failed to sync TV category prompt:', err);
@@ -1008,7 +1072,15 @@ export const TVGame: React.FC = () => {
       isCancelled = true;
       clearInterval(interval);
     };
-  }, [game?.id, game?.status, game?.current_round, currentRound?.round_number, currentRound?.status]);
+  }, [
+    game?.id,
+    game?.status,
+    game?.current_round,
+    game?.round_count,
+    hasLocalCurrentRound,
+    hasSeenCurrentRound,
+    recoverRoundState,
+  ]);
 
   if (!game || !isDisplayMode) {
     return null;
@@ -1024,9 +1096,10 @@ export const TVGame: React.FC = () => {
       </button>
     </div>
   ) : null;
+  const activeCategoryPrompt = shouldShowCategorySelectionWait ? pendingCategoryPrompt : null;
 
   // Category selection waiting state
-  if (game && shouldShowCategorySelectionWait) {
+  if (game && activeCategoryPrompt) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gradient-primary relative">
         <ParticleBackground />
@@ -1057,10 +1130,10 @@ export const TVGame: React.FC = () => {
             </div>
           )}
 
-          {categoryOptions.length > 0 ? (
+          {activeCategoryPrompt.options.length > 0 ? (
             <div className="mt-8 grid grid-cols-1 sm:grid-cols-2 gap-4 max-w-4xl mx-auto">
-              {categoryOptions.map((category) => {
-                const isSelected = selectedCategory === category;
+              {activeCategoryPrompt.options.map((category) => {
+                const isSelected = activeCategoryPrompt.selectedCategory === category;
                 return (
                   <div
                     key={category}

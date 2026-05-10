@@ -93,6 +93,20 @@ interface CategoryPromptState {
   options: string[];
 }
 
+type PendingConfirmation =
+  | {
+      kind: 'answer';
+      roundId: string;
+      answerText: string;
+    }
+  | {
+      kind: 'vote';
+      roundId: string;
+      answerId: string;
+      answerText: string;
+      answerIds: string[];
+    };
+
 // Ultra-minimal player input screen - zero animations for lowest latency
 export const Game: React.FC = () => {
   const navigate = useNavigate();
@@ -122,8 +136,10 @@ export const Game: React.FC = () => {
   const [categoryPrompt, setCategoryPrompt] = useState<CategoryPromptState | null>(null);
   const [categorySelection, setCategorySelection] = useState<string>('');
   const [categorySecondsLeft, setCategorySecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
-  const [categoryWaitSecondsLeft, setCategoryWaitSecondsLeft] = useState<number>(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
   const [showContinueFallback, setShowContinueFallback] = useState(false);
+  const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
+  const [confirmationSecondsLeft, setConfirmationSecondsLeft] = useState<number>(GAME_CONFIG.CONFIRMATION_TIMER);
+  const [isConfirmingChoice, setIsConfirmingChoice] = useState(false);
   const roundCreationRef = useRef<number | null>(null);
   const isCreatingRoundRef = useRef<boolean>(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -131,11 +147,9 @@ export const Game: React.FC = () => {
   const forceAdvanceKeyRef = useRef<string | null>(null);
   const phaseTimerInitializedRef = useRef<string | null>(null);
   const warningBeepSecondRef = useRef<number | null>(null);
-  const voteSubmitInFlightRef = useRef<boolean>(false);
-  const pendingVoteTargetRef = useRef<string | null>(null);
   const controllerPlayerId = game?.phase_captain_id ?? game?.host_id ?? players[0]?.id ?? null;
   const canControlFlow = !!currentPlayer && (controllerPlayerId ? currentPlayer.id === controllerPlayerId : true);
-  const hasLockedAnswer = hasSubmittedAnswer || isSubmittingAnswer;
+  const hasLockedAnswer = hasSubmittedAnswer || isSubmittingAnswer || isConfirmingChoice;
   const revealEstimateSeconds = Math.ceil(
     ((Math.max(allAnswers.length, 2) * GAME_CONFIG.TV_REVEAL_STEP_MS) + GAME_CONFIG.TV_REVEAL_FINISH_BUFFER_MS) / 1000
   );
@@ -156,6 +170,14 @@ export const Game: React.FC = () => {
   const isAwaitingStageCategorySelection = !!game &&
     isWaitingForNextRound &&
     isStageStartRound(game.current_round);
+  const shouldShowCategoryPrompt = !!categoryPrompt &&
+    !!game &&
+    canControlFlow &&
+    game.status === 'playing' &&
+    game.current_round === categoryPrompt.roundNumber &&
+    isStageStartRound(categoryPrompt.roundNumber) &&
+    (!currentRound || currentRound.round_number < categoryPrompt.roundNumber);
+  const canSelectVote = isVotingOpen && !hasSubmittedVote && pendingConfirmation?.kind !== 'vote' && !isConfirmingChoice;
   const roundStateIsStale = useMemo(() => {
     if (!game || game.status !== 'playing' || expectedRoundNumber <= 0) {
       return false;
@@ -197,21 +219,19 @@ export const Game: React.FC = () => {
     !!currentPlayer && allAnswers.some((answer) => answer.is_correct && answer.player_id === currentPlayer.id)
   ), [allAnswers, currentPlayer]);
 
-  const finishCategorySelection = useCallback((selectedCategory: string | null) => {
+  const finishCategorySelection = useCallback(async (selectedCategory: string | null) => {
     if (game && currentPlayer) {
-      (async () => {
-        try {
-          const { GameService } = await import('@fakash/shared');
-          const roundNumber = categoryPrompt?.roundNumber || game.current_round;
-          if (!roundNumber || !selectedCategory) return;
-
+      try {
+        const { GameService } = await import('@fakash/shared');
+        const roundNumber = categoryPrompt?.roundNumber || game.current_round;
+        if (roundNumber && selectedCategory) {
           await GameService.saveCategoryPrompt(game.id, roundNumber, currentPlayer.id, {
             selectedCategory,
           });
-        } catch (err) {
-          console.warn('Failed to persist selected category:', err);
         }
-      })();
+      } catch (err) {
+        console.warn('Failed to persist selected category:', err);
+      }
     }
 
     const resolver = categoryResolverRef.current;
@@ -224,6 +244,9 @@ export const Game: React.FC = () => {
 
   const requestCategorySelection = useCallback(async (roundNumber: number): Promise<string | null> => {
     if (!game || !currentPlayer) return null;
+    if (!canControlFlow || game.current_round !== roundNumber || !isStageStartRound(roundNumber)) {
+      return null;
+    }
 
     const { getSupabase } = await import('@fakash/shared');
     const supabase = getSupabase();
@@ -291,13 +314,17 @@ export const Game: React.FC = () => {
       }
     }
 
+    if (useGameStore.getState().game?.current_round !== roundNumber) {
+      return null;
+    }
+
     return await new Promise<string | null>((resolve) => {
       categoryResolverRef.current = resolve;
       setCategorySelection(options[0]);
       setCategoryPrompt({ roundNumber, options });
       setCategorySecondsLeft(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
     });
-  }, [currentPlayer, game]);
+  }, [canControlFlow, currentPlayer, game]);
 
   const getCategoryForRound = useCallback(async (roundNumber: number): Promise<string | null> => {
     if (!game) return null;
@@ -391,6 +418,83 @@ export const Game: React.FC = () => {
     }
   }, [expectedRoundNumber, recoverRoundState]);
 
+  const clearPendingConfirmation = useCallback(() => {
+    setPendingConfirmation(null);
+    setConfirmationSecondsLeft(GAME_CONFIG.CONFIRMATION_TIMER);
+    setIsConfirmingChoice(false);
+  }, []);
+
+  const confirmPendingChoice = useCallback(async () => {
+    if (!pendingConfirmation || !currentPlayer || isConfirmingChoice) return;
+    if (!currentRound || currentRound.id !== pendingConfirmation.roundId) {
+      clearPendingConfirmation();
+      return;
+    }
+
+    const isAnswerConfirmation = pendingConfirmation.kind === 'answer';
+    const expectedStatus = isAnswerConfirmation ? 'answering' : 'voting';
+    if (roundStatus !== expectedStatus || !timerActive || timeRemaining <= 0) {
+      clearPendingConfirmation();
+      return;
+    }
+
+    setIsConfirmingChoice(true);
+
+    try {
+      if (isAnswerConfirmation) {
+        setIsSubmittingAnswer(true);
+        await submitAnswer(currentPlayer.id, pendingConfirmation.answerText);
+        setAnswerInput('');
+      } else {
+        console.info('[VoteAudit] confirming vote', {
+          roundId: pendingConfirmation.roundId,
+          answerId: pendingConfirmation.answerId,
+          answerText: pendingConfirmation.answerText,
+          groupedAnswerIds: pendingConfirmation.answerIds,
+        });
+        await submitVote(currentPlayer.id, pendingConfirmation.answerId);
+        const persistedVote = useRoundStore.getState().myVote;
+        setSelectedAnswer(persistedVote || pendingConfirmation.answerId);
+        console.info('[VoteAudit] vote persisted', {
+          roundId: pendingConfirmation.roundId,
+          answerId: persistedVote || pendingConfirmation.answerId,
+          answerText: pendingConfirmation.answerText,
+        });
+      }
+
+      setPendingConfirmation(null);
+      setConfirmationSecondsLeft(GAME_CONFIG.CONFIRMATION_TIMER);
+    } catch (err) {
+      console.error(
+        pendingConfirmation.kind === 'answer' ? 'Failed to submit:' : 'Failed to vote:',
+        getErrorInfo(err)
+      );
+      setPendingConfirmation(null);
+      setConfirmationSecondsLeft(GAME_CONFIG.CONFIRMATION_TIMER);
+      vibrate([200, 100, 200]);
+
+      if (pendingConfirmation.kind === 'vote') {
+        const persistedVote = useRoundStore.getState().myVote;
+        setSelectedAnswer(persistedVote || null);
+        useRoundStore.setState({ hasSubmittedVote: !!persistedVote });
+      }
+    } finally {
+      setIsSubmittingAnswer(false);
+      setIsConfirmingChoice(false);
+    }
+  }, [
+    clearPendingConfirmation,
+    currentPlayer,
+    currentRound,
+    isConfirmingChoice,
+    pendingConfirmation,
+    roundStatus,
+    submitAnswer,
+    submitVote,
+    timeRemaining,
+    timerActive,
+  ]);
+
   // Redirect display mode to TV routes
   useEffect(() => {
     if (!rehydrationAttempted) return;
@@ -408,6 +512,59 @@ export const Game: React.FC = () => {
     };
   }, []);
 
+  useEffect(() => {
+    if (!categoryPrompt || !game) return;
+
+    const promptNoLongerNeeded =
+      game.status !== 'playing' ||
+      game.current_round !== categoryPrompt.roundNumber ||
+      !isStageStartRound(categoryPrompt.roundNumber) ||
+      (currentRound?.round_number ?? 0) >= categoryPrompt.roundNumber;
+
+    if (!promptNoLongerNeeded) return;
+
+    const resolver = categoryResolverRef.current;
+    categoryResolverRef.current = null;
+    setCategoryPrompt(null);
+    if (resolver) {
+      resolver(null);
+    }
+  }, [categoryPrompt?.roundNumber, currentRound?.round_number, game?.current_round, game?.status]);
+
+  useEffect(() => {
+    if (!pendingConfirmation) {
+      setConfirmationSecondsLeft(GAME_CONFIG.CONFIRMATION_TIMER);
+      return;
+    }
+
+    setConfirmationSecondsLeft(GAME_CONFIG.CONFIRMATION_TIMER);
+    const interval = setInterval(() => {
+      setConfirmationSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [pendingConfirmation]);
+
+  useEffect(() => {
+    if (!pendingConfirmation || confirmationSecondsLeft > 0 || isConfirmingChoice) return;
+    void confirmPendingChoice();
+  }, [confirmationSecondsLeft, confirmPendingChoice, isConfirmingChoice, pendingConfirmation]);
+
+  useEffect(() => {
+    if (!pendingConfirmation) return;
+
+    const expectedStatus = pendingConfirmation.kind === 'answer' ? 'answering' : 'voting';
+    const shouldCancel =
+      !currentRound ||
+      currentRound.id !== pendingConfirmation.roundId ||
+      roundStatus !== expectedStatus ||
+      timeRemaining <= 0;
+
+    if (shouldCancel) {
+      clearPendingConfirmation();
+    }
+  }, [clearPendingConfirmation, currentRound?.id, pendingConfirmation, roundStatus, timeRemaining]);
+
   // Category selection countdown (captain only)
   useEffect(() => {
     if (!categoryPrompt) return;
@@ -424,20 +581,8 @@ export const Game: React.FC = () => {
   useEffect(() => {
     if (!categoryPrompt || categorySecondsLeft > 0) return;
     const fallback = categorySelection || categoryPrompt.options[0] || null;
-    finishCategorySelection(fallback);
+    void finishCategorySelection(fallback);
   }, [categoryPrompt, categorySecondsLeft, categorySelection, finishCategorySelection]);
-
-  // Waiting countdown for non-captains while the stage captain is choosing a category.
-  useEffect(() => {
-    if (!isAwaitingStageCategorySelection) return;
-
-    setCategoryWaitSecondsLeft(GAME_CONFIG.CATEGORY_SELECTION_TIMER);
-    const interval = setInterval(() => {
-      setCategoryWaitSecondsLeft((prev) => (prev <= 1 ? 0 : prev - 1));
-    }, 1000);
-
-    return () => clearInterval(interval);
-  }, [isAwaitingStageCategorySelection, game?.id, game?.current_round]);
 
   // Navigation guard
   useEffect(() => {
@@ -577,15 +722,11 @@ export const Game: React.FC = () => {
   }, [currentRound?.id, roundStatus]);
 
   useEffect(() => {
-    voteSubmitInFlightRef.current = false;
-    pendingVoteTargetRef.current = null;
-  }, [currentRound?.id, roundStatus]);
-
-  useEffect(() => {
     setAnswerInput('');
     setSelectedAnswer(null);
     setShowContinueFallback(false);
-  }, [currentRound?.id]);
+    clearPendingConfirmation();
+  }, [clearPendingConfirmation, currentRound?.id]);
 
   useEffect(() => {
     if (!currentRound || !currentPlayer || canControlFlow || isForceAdvancing) {
@@ -764,7 +905,7 @@ export const Game: React.FC = () => {
     );
   }
 
-  if (categoryPrompt && canControlFlow) {
+  if (shouldShowCategoryPrompt) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
         <div className="bg-white/10 backdrop-blur rounded-2xl p-5 max-w-sm w-full">
@@ -794,7 +935,7 @@ export const Game: React.FC = () => {
           <button
             onClick={() => {
               vibrate(50);
-              finishCategorySelection(categorySelection || categoryPrompt.options[0] || null);
+              void finishCategorySelection(categorySelection || categoryPrompt.options[0] || null);
             }}
             className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold active:scale-95 transition-transform duration-150"
           >
@@ -805,17 +946,12 @@ export const Game: React.FC = () => {
     );
   }
 
-  if (!categoryPrompt && isAwaitingStageCategorySelection) {
+  if (!shouldShowCategoryPrompt && isAwaitingStageCategorySelection) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4 bg-gradient-primary">
         <div className="bg-white/10 backdrop-blur rounded-2xl p-6 max-w-sm w-full text-center">
-          <p className="text-sm text-white/70 mb-2">اختيار الفئة - الجولة {categoryStageInfo.stageNumber}/3</p>
-          <p className="text-lg font-bold mb-1">
-            {canControlFlow ? 'جاري تجهيز اختيار الفئة' : 'القائد يختار فئة السؤال'}
-          </p>
-          <p className="text-xs text-white/60">
-            الوقت المتوقع: {categoryWaitSecondsLeft} ثانية
-          </p>
+          <p className="text-lg font-bold mb-1">جاري تحميل الجولة...</p>
+          <p className="text-xs text-white/60">يتم تجهيز السؤال التالي</p>
         </div>
       </div>
     );
@@ -834,61 +970,30 @@ export const Game: React.FC = () => {
 
   const handleSubmitAnswer = async () => {
     if (!answerInput.trim() || !currentPlayer || hasLockedAnswer) return;
-    if (isSubmittingAnswer) return;
+    if (!currentRound || roundStatus !== 'answering' || !timerActive || timeRemaining === 0) return;
 
-    setIsSubmittingAnswer(true);
-    vibrate([50, 50, 50]); // Success pattern
-    try {
-      await submitAnswer(currentPlayer.id, answerInput);
-      setAnswerInput('');
-    } catch (err) {
-      console.error('Failed to submit:', err);
-      vibrate([200, 100, 200]); // Error pattern
-    } finally {
-      setIsSubmittingAnswer(false);
-    }
-  };
-
-  const flushPendingVote = async () => {
-    if (!currentPlayer || voteSubmitInFlightRef.current) {
-      return;
-    }
-
-    while (pendingVoteTargetRef.current) {
-      const targetAnswerId = pendingVoteTargetRef.current;
-      pendingVoteTargetRef.current = null;
-      voteSubmitInFlightRef.current = true;
-
-      try {
-        await submitVote(currentPlayer.id, targetAnswerId);
-      } catch (err) {
-        console.error('Failed to vote:', err);
-        voteSubmitInFlightRef.current = false;
-
-        if (pendingVoteTargetRef.current) {
-          continue;
-        }
-
-        vibrate([200, 100, 200]);
-        const persistedVote = useRoundStore.getState().myVote;
-        setSelectedAnswer(persistedVote || null);
-        useRoundStore.setState({ hasSubmittedVote: !!persistedVote });
-        return;
-      }
-
-      voteSubmitInFlightRef.current = false;
-    }
+    vibrate(50);
+    setPendingConfirmation({
+      kind: 'answer',
+      roundId: currentRound.id,
+      answerText: answerInput.trim(),
+    });
   };
 
   const handleSubmitVote = async (answerId: string, groupAnswerIds: string[] = [answerId]) => {
-    if (!isVotingOpen || !currentPlayer) return;
+    if (!canSelectVote || !currentPlayer || !currentRound) return;
     if (selectedAnswer && groupAnswerIds.includes(selectedAnswer)) return;
 
+    const selectedOption = combinedAnswers.find((answer) => answer.answerIds.includes(answerId));
     setSelectedAnswer(answerId);
     vibrate(50);
-    useRoundStore.setState({ hasSubmittedVote: true });
-    pendingVoteTargetRef.current = answerId;
-    void flushPendingVote();
+    setPendingConfirmation({
+      kind: 'vote',
+      roundId: currentRound.id,
+      answerId,
+      answerText: selectedOption?.answer_text || '',
+      answerIds: groupAnswerIds,
+    });
   };
 
   const handleContinueAfterTimeout = async () => {
@@ -981,11 +1086,11 @@ export const Game: React.FC = () => {
                   maxLength={GAME_CONFIG.MAX_ANSWER_LENGTH}
                   onKeyPress={(e) => e.key === 'Enter' && handleSubmitAnswer()}
                   autoFocus
-                  disabled={isSubmittingAnswer || !timerActive || timeRemaining === 0}
+                  disabled={isSubmittingAnswer || !!pendingConfirmation || !timerActive || timeRemaining === 0}
                 />
                 <button
                   onClick={handleSubmitAnswer}
-                  disabled={!answerInput.trim() || isSubmittingAnswer || !timerActive || timeRemaining === 0}
+                  disabled={!answerInput.trim() || isSubmittingAnswer || !!pendingConfirmation || !timerActive || timeRemaining === 0}
                   className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50 active:scale-95 transition-transform duration-150"
                 >
                   {isSubmittingAnswer ? 'جارٍ الإرسال...' : 'إرسال'}
@@ -1026,8 +1131,8 @@ export const Game: React.FC = () => {
                 return (
                   <button
                     key={answer.voteTargetId}
-                    onClick={() => !isOwn && isVotingOpen && handleSubmitVote(answer.voteTargetId, answer.answerIds)}
-                    disabled={!isVotingOpen || isOwn}
+                    onClick={() => !isOwn && canSelectVote && handleSubmitVote(answer.voteTargetId, answer.answerIds)}
+                    disabled={!canSelectVote || isOwn}
                     className={`w-full p-3 rounded-xl text-right active:scale-95 transition-all duration-150 ${
                       isSelected
                         ? 'bg-cyan-500 text-white ring-2 ring-cyan-300 shadow-lg shadow-cyan-500/50'
@@ -1044,7 +1149,7 @@ export const Game: React.FC = () => {
             </div>
             {hasSubmittedVote && (
               <p className="text-center text-xs text-white/50 mt-3">
-                تم حفظ التصويت{isVotingOpen ? ' - يمكنك تغييره حتى ينتهي الوقت' : ''}
+                تم تثبيت التصويت
               </p>
             )}
           </div>
@@ -1095,6 +1200,48 @@ export const Game: React.FC = () => {
           </div>
         )}
       </div>
+      {pendingConfirmation && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4 backdrop-blur-sm">
+          <div className="w-full max-w-xs rounded-2xl border border-white/15 bg-[#1f1237] p-5 text-center shadow-2xl">
+            <p className="mb-2 text-sm text-white/60">
+              {pendingConfirmation.kind === 'answer' ? 'تأكيد الإجابة' : 'تأكيد التصويت'}
+            </p>
+            <p className="mb-4 break-words text-xl font-bold text-white">
+              {pendingConfirmation.kind === 'answer'
+                ? pendingConfirmation.answerText
+                : pendingConfirmation.answerText}
+            </p>
+            <p className="mb-4 text-xs text-white/60">
+              سيتم التأكيد تلقائياً خلال {confirmationSecondsLeft} ثوانٍ
+            </p>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                onClick={() => {
+                  vibrate(30);
+                  if (pendingConfirmation.kind === 'vote') {
+                    setSelectedAnswer(myVote || null);
+                  }
+                  clearPendingConfirmation();
+                }}
+                disabled={isConfirmingChoice}
+                className="rounded-xl border border-white/20 bg-white/10 py-3 text-sm font-bold text-white disabled:opacity-50"
+              >
+                تعديل
+              </button>
+              <button
+                onClick={() => {
+                  vibrate(50);
+                  void confirmPendingChoice();
+                }}
+                disabled={isConfirmingChoice}
+                className="rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 py-3 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {isConfirmingChoice ? 'جاري الحفظ...' : 'تأكيد'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

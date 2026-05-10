@@ -1,0 +1,67 @@
+[
+    {
+        "Run":  "run-01",
+        "Status":  "PASS",
+        "ExitCode":  0,
+        "GameCode":  "LBUHB4",
+        "CategoryFlashCheck":  "PASS: No TV category-selection wait screen was observed after answering began.",
+        "RelevantErrors":  "0",
+        "Started":  "2026-05-09T00:36:42",
+        "Completed":  "2026-05-09T00:38:16",
+        "DurationSeconds":  93.6,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-01\\stress-10-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-01\\playwright-console.log"
+    },
+    {
+        "Run":  "run-02",
+        "Status":  "FAIL",
+        "ExitCode":  1,
+        "GameCode":  "D11D2A",
+        "CategoryFlashCheck":  "FAIL: 1 unexpected TV category-selection wait sample(s) observed after answering began.",
+        "RelevantErrors":  "12",
+        "Started":  "2026-05-09T00:38:16",
+        "Completed":  "2026-05-09T00:40:20",
+        "DurationSeconds":  124,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-02\\stress-10-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-02\\playwright-console.log"
+    },
+    {
+        "Run":  "run-03",
+        "Status":  "FAIL",
+        "ExitCode":  1,
+        "GameCode":  "3NTWDT",
+        "CategoryFlashCheck":  "FAIL: 1 unexpected TV category-selection wait sample(s) observed after answering began.",
+        "RelevantErrors":  "12",
+        "Started":  "2026-05-09T00:40:20",
+        "Completed":  "2026-05-09T00:42:24",
+        "DurationSeconds":  123.6,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-03\\stress-10-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-03\\playwright-console.log"
+    },
+    {
+        "Run":  "run-04",
+        "Status":  "FAIL",
+        "ExitCode":  1,
+        "GameCode":  "RWKNZY",
+        "CategoryFlashCheck":  "FAIL: 1 unexpected TV category-selection wait sample(s) observed after answering began.",
+        "RelevantErrors":  "11",
+        "Started":  "2026-05-09T00:42:24",
+        "Completed":  "2026-05-09T00:44:26",
+        "DurationSeconds":  122.5,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-04\\stress-10-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-04\\playwright-console.log"
+    },
+    {
+        "Run":  "run-05",
+        "Status":  "FAIL",
+        "ExitCode":  1,
+        "GameCode":  "K5WMHZ",
+        "CategoryFlashCheck":  "FAIL: 2 unexpected TV category-selection wait sample(s) observed after answering began.",
+        "RelevantErrors":  "11",
+        "Started":  "2026-05-09T00:44:26",
+        "Completed":  "2026-05-09T00:46:30",
+        "DurationSeconds":  123.2,
+        "Report":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-05\\stress-10-players.md",
+        "Log":  "C:\\Users\\Hopef\\Desktop\\Fgsh\\qa-reports\\stress-10-players-2026-05-09-live-5x-20260509-003642\\run-05\\playwright-console.log"
+    }
+]

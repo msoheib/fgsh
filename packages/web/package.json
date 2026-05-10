@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "preview": "vite preview",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "stress:8": "playwright test -c playwright.stress.config.ts e2e/stress-8-players.spec.ts --project=chromium"
   },
   "dependencies": {
     "@fgsh/shared": "*",

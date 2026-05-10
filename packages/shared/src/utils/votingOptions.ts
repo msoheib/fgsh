@@ -87,7 +87,16 @@ export function buildVotingOptions(roundId: string, answers: PlayerAnswer[]): Vo
     }
   }
 
+  const truthAnswerKeys = new Set(
+    Array.from(grouped.values())
+      .filter((group) => group.hasCorrectAnswer)
+      .map((group) => normalizeAnswerKey(group.answer_text))
+  );
+
   return Array.from(grouped.values())
+    .filter((group) => (
+      group.hasCorrectAnswer || !truthAnswerKeys.has(normalizeAnswerKey(group.answer_text))
+    ))
     .sort((a, b) => {
       const aSeed = hashString(`${seedRoundId}:${a.groupKey}`);
       const bSeed = hashString(`${seedRoundId}:${b.groupKey}`);

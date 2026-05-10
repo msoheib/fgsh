@@ -16,6 +16,7 @@ export const GAME_CONFIG = {
   ROUND_OPTIONS: [7],
   STAGE_QUESTION_COUNTS: [3, 3, 1],
   CATEGORY_SELECTION_TIMER: 20,
+  CONFIRMATION_TIMER: 5,
 
   // Timer durations (seconds)
   ANSWER_TIMER: 60,

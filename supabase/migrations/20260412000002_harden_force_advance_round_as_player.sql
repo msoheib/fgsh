@@ -4,6 +4,8 @@
 -- 2) Keep timeout checks server-authoritative.
 -- 3) Treat stale callers idempotently when the round already advanced.
 
+DROP FUNCTION IF EXISTS public.force_advance_round_as_player(UUID, UUID, TEXT);
+
 CREATE OR REPLACE FUNCTION public.force_advance_round_as_player(
   p_round_id UUID,
   p_player_id UUID,
