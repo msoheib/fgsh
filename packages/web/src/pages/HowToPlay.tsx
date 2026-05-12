@@ -80,19 +80,19 @@ export const HowToPlay: React.FC = () => {
             <div className="space-y-2">
               <div className="flex items-center justify-between glass rounded-xl p-3">
                 <span className="text-white/80 text-sm">التصويت للإجابة الصحيحة</span>
-                <span className="font-bold text-secondary-main">500 نقطة</span>
+                <span className="font-bold text-white/85">500 نقطة</span>
               </div>
               <div className="flex items-center justify-between glass rounded-xl p-3">
                 <span className="text-white/80 text-sm">لكل لاعب ينخدع بإجابتك</span>
-                <span className="font-bold text-secondary-main">500 نقطة</span>
+                <span className="font-bold text-white/85">500 نقطة</span>
               </div>
               <div className="flex items-center justify-between glass rounded-xl p-3">
                 <span className="text-white/80 text-sm">إجابة مثالية (لا أحد اختارها)</span>
-                <span className="font-bold text-secondary-main">1000 نقطة</span>
+                <span className="font-bold text-white/85">1000 نقطة</span>
               </div>
               <div className="flex items-center justify-between glass rounded-xl p-3">
                 <span className="text-white/80 text-sm">أعلى نقاط في الجولة</span>
-                <span className="font-bold text-secondary-main">250 نقطة</span>
+                <span className="font-bold text-white/85">250 نقطة</span>
               </div>
             </div>
           </div>
