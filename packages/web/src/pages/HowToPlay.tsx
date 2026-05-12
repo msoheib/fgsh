@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Logo } from '../components/Logo';
 import { GlassCard } from '../components/GlassCard';
 import { GradientButton } from '../components/GradientButton';
+import { TutorialReel } from '../components/TutorialReel';
 
 export const HowToPlay: React.FC = () => {
   const navigate = useNavigate();
@@ -11,10 +12,14 @@ export const HowToPlay: React.FC = () => {
     <div className="min-h-screen flex flex-col items-center justify-center p-4 sm:p-6">
       <Logo size="sm" className="mb-6 sm:mb-8" />
 
-      <GlassCard className="max-w-3xl w-full">
+      <GlassCard className="max-w-5xl w-full">
         <h2 className="text-2xl sm:text-3xl font-bold text-center mb-6 sm:mb-8">
           كيف تلعب فقش؟
         </h2>
+
+        <div className="mb-8">
+          <TutorialReel />
+        </div>
 
         <div className="space-y-6 text-right">
           {/* Game Overview */}
