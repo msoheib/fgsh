@@ -2,19 +2,19 @@
 
 - Status: **PASS**
 - Target URL: https://fgsh-web.vercel.app
-- Started: 2026-05-10T13:05:54.355Z
-- Completed: 2026-05-10T13:06:38.678Z
+- Started: 2026-05-10T13:02:15.092Z
+- Completed: 2026-05-10T13:03:01.210Z
 - Browser: chromium
 - Viewports: TV/host 1440x900; players 390x844 in 10 isolated contexts
 - Credentials: supplied through environment variables and intentionally not logged.
-- Game code: 726RDE
+- Game code: AJDTCD
 
 ## Acceptance Criteria
 
 | Criterion | Status | Details |
 | --- | --- | --- |
 | Required environment variables are present | PASS | All required env vars are set. |
-| Host can log in and create a TV room | PASS | Created TV room 726RDE. |
+| Host can log in and create a TV room | PASS | Created TV room AJDTCD. |
 | 10 players join successfully | PASS | 10 players joined isolated browser contexts. |
 | TV lobby displays 10 / 10 players | PASS | TV lobby displayed 10 / 10 players. |
 | Game starts for TV and players | PASS | TV and player pages reached the first answering state. |
@@ -29,43 +29,43 @@
 
 | Phase | Actor | Duration ms | Status | Details |
 | --- | --- | ---: | --- | --- |
-| create room | host | 3760 | PASS | Created TV room 726RDE. |
-| join | Stress P01 | 2436 | PASS |  |
-| join | Stress P02 | 2619 | PASS |  |
-| join | Stress P05 | 2657 | PASS |  |
-| join | Stress P10 | 2649 | PASS |  |
-| join | Stress P09 | 2655 | PASS |  |
-| join | Stress P06 | 2666 | PASS |  |
-| join | Stress P08 | 2675 | PASS |  |
-| join | Stress P03 | 2695 | PASS |  |
-| join | Stress P04 | 2700 | PASS |  |
-| join | Stress P07 | 2690 | PASS |  |
-| start game | Stress P01 | 24892 | PASS |  |
-| answer | Stress P02 | 411 | PASS |  |
-| answer | Stress P03 | 427 | PASS |  |
-| answer | Stress P06 | 421 | PASS |  |
-| answer | Stress P05 | 508 | PASS |  |
-| answer | Stress P08 | 503 | PASS |  |
-| answer | Stress P04 | 513 | PASS |  |
-| answer | Stress P01 | 519 | PASS |  |
-| answer | Stress P09 | 505 | PASS |  |
-| answer | Stress P07 | 509 | PASS |  |
-| answer | Stress P10 | 506 | PASS |  |
-| vote | Stress P01 | 3375 | PASS |  |
-| vote | Stress P03 | 4218 | PASS |  |
-| vote | Stress P08 | 4216 | PASS |  |
-| vote | Stress P05 | 4218 | PASS |  |
-| vote | Stress P10 | 4397 | PASS |  |
-| vote | Stress P09 | 4398 | PASS |  |
-| vote | Stress P06 | 4401 | PASS |  |
-| vote | Stress P04 | 4402 | PASS |  |
-| vote | Stress P02 | 4405 | PASS |  |
-| vote | Stress P07 | 4403 | PASS |  |
-| total | all | 44321 | PASS |  |
+| create room | host | 3936 | PASS | Created TV room AJDTCD. |
+| join | Stress P01 | 2405 | PASS |  |
+| join | Stress P06 | 2465 | PASS |  |
+| join | Stress P03 | 2562 | PASS |  |
+| join | Stress P08 | 2581 | PASS |  |
+| join | Stress P07 | 2594 | PASS |  |
+| join | Stress P09 | 2591 | PASS |  |
+| join | Stress P10 | 2596 | PASS |  |
+| join | Stress P04 | 2632 | PASS |  |
+| join | Stress P05 | 2639 | PASS |  |
+| join | Stress P02 | 2800 | PASS |  |
+| start game | Stress P01 | 25973 | PASS |  |
+| answer | Stress P09 | 221 | PASS |  |
+| answer | Stress P08 | 223 | PASS |  |
+| answer | Stress P04 | 225 | PASS |  |
+| answer | Stress P03 | 229 | PASS |  |
+| answer | Stress P10 | 224 | PASS |  |
+| answer | Stress P07 | 228 | PASS |  |
+| answer | Stress P02 | 259 | PASS |  |
+| answer | Stress P06 | 257 | PASS |  |
+| answer | Stress P01 | 262 | PASS |  |
+| answer | Stress P05 | 260 | PASS |  |
+| vote | Stress P08 | 3264 | PASS |  |
+| vote | Stress P09 | 3264 | PASS |  |
+| vote | Stress P03 | 3268 | PASS |  |
+| vote | Stress P07 | 3267 | PASS |  |
+| vote | Stress P02 | 3271 | PASS |  |
+| vote | Stress P05 | 3272 | PASS |  |
+| vote | Stress P01 | 3275 | PASS |  |
+| vote | Stress P10 | 3271 | PASS |  |
+| vote | Stress P04 | 4284 | PASS |  |
+| vote | Stress P06 | 5293 | PASS |  |
+| total | all | 46116 | PASS |  |
 
 ## Diagnostics
 
-- Console/page/request records captured: 294
+- Console/page/request records captured: 291
 - Relevant error records: 0
 
 _No relevant framework/runtime errors were recorded._
