@@ -116,9 +116,11 @@ export const Game: React.FC = () => {
     question,
     roundStatus,
     hasSubmittedAnswer,
+    playerAnswers,
     allAnswers,
     myVote,
     hasSubmittedVote,
+    playerVotes,
     submitAnswer,
     submitVote,
     timeRemaining,
@@ -140,6 +142,7 @@ export const Game: React.FC = () => {
   const [pendingConfirmation, setPendingConfirmation] = useState<PendingConfirmation | null>(null);
   const [confirmationSecondsLeft, setConfirmationSecondsLeft] = useState<number>(GAME_CONFIG.CONFIRMATION_TIMER);
   const [isConfirmingChoice, setIsConfirmingChoice] = useState(false);
+  const [isAdvancingRound, setIsAdvancingRound] = useState(false);
   const roundCreationRef = useRef<number | null>(null);
   const isCreatingRoundRef = useRef<boolean>(false);
   const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -147,9 +150,20 @@ export const Game: React.FC = () => {
   const forceAdvanceKeyRef = useRef<string | null>(null);
   const phaseTimerInitializedRef = useRef<string | null>(null);
   const warningBeepSecondRef = useRef<number | null>(null);
+  const quorumRecoveryKeyRef = useRef<string | null>(null);
+  const advancedRoundIdRef = useRef<string | null>(null);
   const controllerPlayerId = game?.phase_captain_id ?? game?.host_id ?? players[0]?.id ?? null;
   const canControlFlow = !!currentPlayer && (controllerPlayerId ? currentPlayer.id === controllerPlayerId : true);
   const hasLockedAnswer = hasSubmittedAnswer || isSubmittingAnswer || isConfirmingChoice;
+  const connectedPlayerCount = useMemo(
+    () => players.filter((player) => player.connection_status === 'connected').length,
+    [players]
+  );
+  const effectiveRequiredPlayers = useMemo(() => {
+    if (!currentRound) return 0;
+    const requiredPlayers = Math.max(currentRound.required_players || 2, 2);
+    return Math.min(requiredPlayers, Math.max(connectedPlayerCount, 2));
+  }, [connectedPlayerCount, currentRound?.required_players]);
   const revealEstimateSeconds = Math.ceil(
     ((Math.max(allAnswers.length, 2) * GAME_CONFIG.TV_REVEAL_STEP_MS) + GAME_CONFIG.TV_REVEAL_FINISH_BUFFER_MS) / 1000
   );
@@ -397,7 +411,9 @@ export const Game: React.FC = () => {
     }
   }, [game, currentPlayer]);
 
-  const syncRoundStateAfterServerAdvance = useCallback(async (source: 'controller' | 'fallback') => {
+  const syncRoundStateAfterServerAdvance = useCallback(async (
+    source: 'controller' | 'fallback' | 'answer-confirm' | 'vote-confirm' | 'quorum-recovery'
+  ) => {
     await recoverRoundState();
 
     const roundState = useRoundStore.getState();
@@ -439,12 +455,14 @@ export const Game: React.FC = () => {
     }
 
     setIsConfirmingChoice(true);
+    let shouldSyncAfterConfirm: 'answer-confirm' | 'vote-confirm' | null = null;
 
     try {
       if (isAnswerConfirmation) {
         setIsSubmittingAnswer(true);
         await submitAnswer(currentPlayer.id, pendingConfirmation.answerText);
         setAnswerInput('');
+        shouldSyncAfterConfirm = 'answer-confirm';
       } else {
         console.info('[VoteAudit] confirming vote', {
           roundId: pendingConfirmation.roundId,
@@ -460,10 +478,14 @@ export const Game: React.FC = () => {
           answerId: persistedVote || pendingConfirmation.answerId,
           answerText: pendingConfirmation.answerText,
         });
+        shouldSyncAfterConfirm = 'vote-confirm';
       }
 
       setPendingConfirmation(null);
       setConfirmationSecondsLeft(GAME_CONFIG.CONFIRMATION_TIMER);
+      if (shouldSyncAfterConfirm) {
+        void syncRoundStateAfterServerAdvance(shouldSyncAfterConfirm);
+      }
     } catch (err) {
       console.error(
         pendingConfirmation.kind === 'answer' ? 'Failed to submit:' : 'Failed to vote:',
@@ -491,6 +513,7 @@ export const Game: React.FC = () => {
     roundStatus,
     submitAnswer,
     submitVote,
+    syncRoundStateAfterServerAdvance,
     timeRemaining,
     timerActive,
   ]);
@@ -722,9 +745,76 @@ export const Game: React.FC = () => {
   }, [currentRound?.id, roundStatus]);
 
   useEffect(() => {
+    if (!currentRound || !currentPlayer || !game || !timerActive) {
+      quorumRecoveryKeyRef.current = null;
+      return;
+    }
+
+    if (roundStatus !== 'answering' && roundStatus !== 'voting') {
+      quorumRecoveryKeyRef.current = null;
+      return;
+    }
+
+    if (effectiveRequiredPlayers <= 0) return;
+
+    const confirmedCount = roundStatus === 'answering'
+      ? playerAnswers.size
+      : playerVotes.size;
+
+    if (confirmedCount < effectiveRequiredPlayers) return;
+
+    const recoveryKey = `${currentRound.id}:${roundStatus}:${effectiveRequiredPlayers}`;
+    if (quorumRecoveryKeyRef.current !== recoveryKey) {
+      quorumRecoveryKeyRef.current = recoveryKey;
+    }
+
+    let attempts = 0;
+    const recoverIfStillStuck = () => {
+      const latestRoundState = useRoundStore.getState();
+      if (latestRoundState.currentRound?.id !== currentRound.id) return;
+      if (latestRoundState.roundStatus !== roundStatus) return;
+
+      attempts += 1;
+      console.warn('[Game] Local quorum reached but phase is still unchanged; recovering from server', {
+        roundId: currentRound.id,
+        roundStatus,
+        confirmedCount,
+        effectiveRequiredPlayers,
+        attempt: attempts,
+      });
+      void syncRoundStateAfterServerAdvance('quorum-recovery');
+    };
+
+    const firstTimer = setTimeout(recoverIfStillStuck, 750);
+    const interval = setInterval(() => {
+      if (attempts >= 3) {
+        clearInterval(interval);
+        return;
+      }
+      recoverIfStillStuck();
+    }, 2500);
+
+    return () => {
+      clearTimeout(firstTimer);
+      clearInterval(interval);
+    };
+  }, [
+    currentPlayer?.id,
+    currentRound?.id,
+    effectiveRequiredPlayers,
+    game?.id,
+    playerAnswers.size,
+    playerVotes.size,
+    roundStatus,
+    syncRoundStateAfterServerAdvance,
+    timerActive,
+  ]);
+
+  useEffect(() => {
     setAnswerInput('');
     setSelectedAnswer(null);
     setShowContinueFallback(false);
+    setIsAdvancingRound(false);
     clearPendingConfirmation();
   }, [clearPendingConfirmation, currentRound?.id]);
 
@@ -1013,18 +1103,36 @@ export const Game: React.FC = () => {
   };
 
   const isFinalRound = currentRound.round_number === game.round_count;
+  const hasAdvancedCurrentRound = advancedRoundIdRef.current === currentRound.id;
+  const canAdvanceCurrentRound =
+    canControlFlow &&
+    reviewCountdown === 0 &&
+    roundStatus === 'completed' &&
+    currentRound.round_number === game.current_round &&
+    !isAdvancingRound &&
+    !hasAdvancedCurrentRound;
 
   const handleNextRound = async () => {
-    if (!canControlFlow || reviewCountdown > 0) return;
+    if (!canAdvanceCurrentRound) return;
+
+    advancedRoundIdRef.current = currentRound.id;
+    setIsAdvancingRound(true);
 
     if (isFinalRound) {
       try {
         const { GameService } = await import('@fakash/shared');
         await GameService.advanceToNextRound(game.id, currentPlayer.id);
+        const updatedGame = await GameService.getGame(game.id);
+        if (updatedGame) {
+          useGameStore.setState({ game: updatedGame });
+        }
+        navigate('/results');
       } catch (err) {
         console.error('Failed to end game:', err);
+        advancedRoundIdRef.current = null;
+      } finally {
+        setIsAdvancingRound(false);
       }
-      navigate('/results');
       return;
     }
 
@@ -1033,8 +1141,15 @@ export const Game: React.FC = () => {
     try {
       const { GameService } = await import('@fakash/shared');
       await GameService.advanceToNextRound(game.id, currentPlayer.id);
+      const updatedGame = await GameService.getGame(game.id);
+      if (updatedGame) {
+        useGameStore.setState({ game: updatedGame });
+      }
     } catch (err) {
       console.error('Failed to advance round:', err);
+      advancedRoundIdRef.current = null;
+    } finally {
+      setIsAdvancingRound(false);
     }
   };
 
@@ -1182,10 +1297,12 @@ export const Game: React.FC = () => {
                     vibrate(50);
                     handleNextRound();
                   }}
-                  disabled={reviewCountdown > 0}
+                  disabled={!canAdvanceCurrentRound}
                   className="w-full py-3 rounded-xl bg-gradient-to-r from-pink-500 to-purple-500 font-bold disabled:opacity-50 active:scale-95 transition-transform duration-150"
                 >
-                  {reviewCountdown > 0
+                  {isAdvancingRound || hasAdvancedCurrentRound
+                    ? 'جاري الانتقال...'
+                    : reviewCountdown > 0
                     ? `انتظر ${reviewCountdown} ثانية`
                     : (isFinalRound ? 'النتائج' : 'التالي ➡️')}
                 </button>

@@ -93,6 +93,7 @@ const checkLabels = {
   tvLobbyCount: `TV lobby displays ${PLAYER_COUNT} / 10 players`,
   gameStarts: 'Game starts for TV and players',
   answersConfirmed: `All ${PLAYER_COUNT} answers confirm`,
+  answerQuorumAdvance: 'Voting opens promptly after answer quorum',
   votingOpens: 'Voting opens for all players',
   votesConfirmed: `All ${PLAYER_COUNT} votes confirm`,
   roundCompleted: 'Round reaches completed/reveal state',
@@ -676,14 +677,32 @@ test.describe(`deployed ${PLAYER_COUNT}-player stress test`, () => {
           ms: Date.now() - startedAt,
           status: 'pass',
         });
+
+        return Date.now();
       };
 
-      await Promise.all(sessions.map((session, index) => answerPlayer(session, index)));
+      const answerConfirmedAt = await Promise.all(sessions.map((session, index) => answerPlayer(session, index)));
+      const lastAnswerConfirmedAt = Math.max(...answerConfirmedAt);
       setCheck(report, checkLabels.answersConfirmed, 'pass', `All ${PLAYER_COUNT} player answer confirmations completed.`);
 
+      const votingWaitStartedAt = Date.now();
       await Promise.all(sessions.map((session) =>
-        expect.poll(async () => votingOptionCount(session.page), { timeout: 60_000 }).toBeGreaterThan(1)
+        expect.poll(async () => votingOptionCount(session.page), { timeout: 15_000 }).toBeGreaterThan(1)
       ));
+      const answerQuorumAdvanceMs = Date.now() - lastAnswerConfirmedAt;
+      report.timings.push({
+        phase: 'answer quorum -> voting',
+        actor: 'all',
+        ms: Date.now() - votingWaitStartedAt,
+        status: 'pass',
+        details: `${answerQuorumAdvanceMs} ms after the last answer confirmation.`,
+      });
+      setCheck(
+        report,
+        checkLabels.answerQuorumAdvance,
+        'pass',
+        `Voting opened ${answerQuorumAdvanceMs} ms after the last answer confirmation.`
+      );
       await captureScreenshot(report, tvPage, 'TV voting state', '04-tv-voting.png');
       await captureScreenshot(report, controller.page, 'Player voting state', '05-player-voting.png');
       setCheck(report, checkLabels.votingOpens, 'pass', `Voting options appeared for all ${PLAYER_COUNT} players.`);
