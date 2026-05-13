@@ -192,6 +192,16 @@ export const Game: React.FC = () => {
     isStageStartRound(categoryPrompt.roundNumber) &&
     (!currentRound || currentRound.round_number < categoryPrompt.roundNumber);
   const canSelectVote = isVotingOpen && !hasSubmittedVote && pendingConfirmation?.kind !== 'vote' && !isConfirmingChoice;
+  const confirmationProgressValue = pendingConfirmation
+    ? Math.max(0, Math.min(GAME_CONFIG.CONFIRMATION_TIMER, confirmationSecondsLeft))
+    : 0;
+  const confirmationProgressKey = pendingConfirmation
+    ? `${pendingConfirmation.kind}:${pendingConfirmation.roundId}:${
+        pendingConfirmation.kind === 'answer'
+          ? pendingConfirmation.answerText
+          : pendingConfirmation.answerId
+      }`
+    : 'idle';
   const roundStateIsStale = useMemo(() => {
     if (!game || game.status !== 'playing' || expectedRoundNumber <= 0) {
       return false;
@@ -1328,6 +1338,24 @@ export const Game: React.FC = () => {
                 ? pendingConfirmation.answerText
                 : pendingConfirmation.answerText}
             </p>
+            {!isConfirmingChoice && (
+              <div
+                className="mb-4 h-2 w-full overflow-hidden rounded-full bg-white/10"
+                role="progressbar"
+                aria-label={pendingConfirmation.kind === 'answer' ? 'وقت تأكيد الإجابة' : 'وقت تأكيد التصويت'}
+                aria-valuemin={0}
+                aria-valuemax={GAME_CONFIG.CONFIRMATION_TIMER}
+                aria-valuenow={confirmationProgressValue}
+              >
+                <div className="flex h-full w-full justify-end">
+                  <div
+                    key={confirmationProgressKey}
+                    className="confirmation-countdown-fill h-full w-full rounded-full bg-gradient-to-l from-red-500 to-pink-500 shadow-[0_0_14px_rgba(244,63,94,0.45)]"
+                    style={{ animationDuration: `${GAME_CONFIG.CONFIRMATION_TIMER}s` }}
+                  />
+                </div>
+              </div>
+            )}
             <p className="mb-4 text-xs text-white/60">
               سيتم التأكيد تلقائياً خلال {confirmationSecondsLeft} ثوانٍ
             </p>

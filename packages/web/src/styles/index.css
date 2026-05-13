@@ -110,6 +110,22 @@
   background-size: 1000px 100%;
 }
 
+@keyframes confirmation-countdown-shrink {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+.confirmation-countdown-fill {
+  transform-origin: right center;
+  animation-name: confirmation-countdown-shrink;
+  animation-timing-function: linear;
+  animation-fill-mode: forwards;
+}
+
 .tutorial-reel {
   --tutorial-duration: 20s;
   --tutorial-play-state: running;

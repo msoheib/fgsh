@@ -450,6 +450,7 @@ async function clickConfirmationIfPresent(page: Page) {
   const confirmButton = dialog.locator('button.bg-gradient-to-r.from-pink-500.to-purple-500');
 
   if (await confirmButton.isVisible({ timeout: 2_500 }).catch(() => false)) {
+    await expect(dialog.getByRole('progressbar')).toBeVisible({ timeout: 2_000 });
     await confirmButton.click();
   }
 }
