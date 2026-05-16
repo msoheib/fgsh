@@ -241,6 +241,33 @@ export const AdminService = {
   },
 
   /**
+   * Delete multiple questions
+   */
+  async deleteQuestions(ids: string[]): Promise<{ deleted: number }> {
+    if (ids.length === 0) {
+      return { deleted: 0 };
+    }
+
+    const supabase = getSupabase();
+
+    const { data, error } = await supabase
+      .from('questions')
+      .update({
+        archived_at: new Date().toISOString(),
+      })
+      .in('id', ids)
+      .is('archived_at', null)
+      .select('id');
+
+    if (error) {
+      console.error('Failed to delete questions:', error);
+      throw error;
+    }
+
+    return { deleted: data?.length || 0 };
+  },
+
+  /**
    * Bulk import questions
    */
   async bulkImportQuestions(questions: QuestionInput[]): Promise<{ success: number; failed: number }> {

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, type ReactNode } from 'react';
+import React, { useState, useEffect, useMemo, useRef, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { AdminService, type Question, type QuestionInput, type QuestionFilters, type QuestionLie } from '@fakash/shared';
 import { GradientButton } from '../GradientButton';
@@ -14,6 +14,8 @@ interface GeneratedQuestion {
   correct_answer: string;
   _excluded?: boolean; // Admin marks for removal before import
 }
+
+type CategorySortDirection = 'none' | 'asc' | 'desc';
 
 const DIFFICULTY_LABELS = {
   easy: 'سهل',
@@ -45,9 +47,12 @@ export const QuestionManager: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [showDeleteConfirm, setShowDeleteConfirm] = useState<string | null>(null);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<EditingQuestion | null>(null);
   const [filters, setFilters] = useState<QuestionFilters>({});
+  const [categorySort, setCategorySort] = useState<CategorySortDirection>('none');
+  const [selectedQuestionIds, setSelectedQuestionIds] = useState<Set<string>>(new Set());
   const [uploadPreview, setUploadPreview] = useState<QuestionInput[] | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -68,9 +73,35 @@ export const QuestionManager: React.FC = () => {
   const [lieCounts, setLieCounts] = useState<Record<string, number>>({});
   const [newLieText, setNewLieText] = useState('');
   const [aiLieCount, setAiLieCount] = useState(3);
-  const anyModalOpen = showModal || !!showDeleteConfirm || showUploadModal || showAIGenerateModal || showLiesModal;
+  const anyModalOpen = showModal || !!showDeleteConfirm || showBulkDeleteConfirm || showUploadModal || showAIGenerateModal || showLiesModal;
+  const selectedQuestionCount = selectedQuestionIds.size;
+  const sortedQuestions = useMemo(() => {
+    if (categorySort === 'none') {
+      return questions;
+    }
+
+    return [...questions].sort((a, b) => {
+      const aCategory = a.category?.trim() || '';
+      const bCategory = b.category?.trim() || '';
+
+      if (!aCategory && bCategory) return 1;
+      if (aCategory && !bCategory) return -1;
+      if (!aCategory && !bCategory) {
+        return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+      }
+
+      const categoryComparison = aCategory.localeCompare(bCategory, 'ar', { sensitivity: 'base' });
+      if (categoryComparison !== 0) {
+        return categorySort === 'asc' ? categoryComparison : -categoryComparison;
+      }
+
+      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+    });
+  }, [categorySort, questions]);
 
   useEffect(() => {
+    setSelectedQuestionIds(new Set());
+    setShowBulkDeleteConfirm(false);
     loadQuestions();
     loadCategories();
   }, [filters]);
@@ -79,6 +110,8 @@ export const QuestionManager: React.FC = () => {
   useEffect(() => {
     if (questions.length > 0) {
       loadLieCounts();
+    } else {
+      setLieCounts({});
     }
   }, [questions]);
 
@@ -108,6 +141,8 @@ export const QuestionManager: React.FC = () => {
 
   const loadQuestions = async () => {
     setLoading(true);
+    setSelectedQuestionIds(new Set());
+    setShowBulkDeleteConfirm(false);
     try {
       const data = await AdminService.getQuestions(filters);
       setQuestions(data);
@@ -190,6 +225,46 @@ export const QuestionManager: React.FC = () => {
       await AdminService.deleteQuestion(id);
       toast.success('تمت إزالة السؤال من الجولات الجديدة');
       setShowDeleteConfirm(null);
+      loadQuestions();
+      loadCategories();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'حدث خطأ أثناء الحذف');
+    }
+  };
+
+  const handleCategorySortToggle = () => {
+    setCategorySort((current) => (current === 'asc' ? 'desc' : 'asc'));
+  };
+
+  const toggleQuestionSelection = (id: string) => {
+    setSelectedQuestionIds((current) => {
+      const next = new Set(current);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const clearQuestionSelection = () => {
+    setSelectedQuestionIds(new Set());
+    setShowBulkDeleteConfirm(false);
+  };
+
+  const handleBulkDelete = async () => {
+    const ids = Array.from(selectedQuestionIds);
+    if (ids.length === 0) {
+      setShowBulkDeleteConfirm(false);
+      return;
+    }
+
+    try {
+      const result = await AdminService.deleteQuestions(ids);
+      toast.success(`تمت إزالة ${result.deleted} سؤال من الجولات الجديدة`);
+      setShowBulkDeleteConfirm(false);
+      setSelectedQuestionIds(new Set());
       loadQuestions();
       loadCategories();
     } catch (error) {
@@ -617,6 +692,30 @@ export const QuestionManager: React.FC = () => {
         </select>
       </div>
 
+      {selectedQuestionCount > 0 && (
+        <div className="mb-4 flex flex-col gap-3 rounded-xl border border-red-400/20 bg-red-500/10 p-3 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-sm font-semibold text-red-100">
+            تم تحديد {selectedQuestionCount} سؤال
+          </p>
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={clearQuestionSelection}
+              className="rounded-lg border border-white/15 bg-white/10 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-white/15"
+            >
+              إلغاء التحديد
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowBulkDeleteConfirm(true)}
+              className="rounded-lg bg-red-500 px-3 py-2 text-sm font-semibold text-white transition-colors hover:bg-red-600"
+            >
+              حذف المحدد
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Questions Table */}
       {loading ? (
         <div className="flex justify-center py-12">
@@ -632,21 +731,42 @@ export const QuestionManager: React.FC = () => {
           <table className="w-full">
             <thead>
               <tr className="border-b border-white/10">
+                <th className="py-3 px-4" aria-label="تحديد"></th>
                 <th className="text-right py-3 px-4 font-semibold text-white/70">#</th>
                 <th className="text-right py-3 px-4 font-semibold text-white/70">السؤال</th>
                 <th className="text-right py-3 px-4 font-semibold text-white/70">الإجابة</th>
-                <th className="text-right py-3 px-4 font-semibold text-white/70">الفئة</th>
+                <th className="text-right py-3 px-4 font-semibold text-white/70" aria-sort={categorySort === 'asc' ? 'ascending' : categorySort === 'desc' ? 'descending' : 'none'}>
+                  <button
+                    type="button"
+                    onClick={handleCategorySortToggle}
+                    className="inline-flex items-center gap-1 rounded-lg px-2 py-1 text-white/70 transition-colors hover:bg-white/10 hover:text-white"
+                  >
+                    <span>الفئة</span>
+                    <span className="text-xs text-white/50">
+                      {categorySort === 'asc' ? '↑' : categorySort === 'desc' ? '↓' : '↕'}
+                    </span>
+                  </button>
+                </th>
                 <th className="text-right py-3 px-4 font-semibold text-white/70">المستوى</th>
                 <th className="text-right py-3 px-4 font-semibold text-white/70">الأكاذيب</th>
                 <th className="text-right py-3 px-4 font-semibold text-white/70">الإجراءات</th>
               </tr>
             </thead>
             <tbody>
-              {questions.map((question, index) => (
+              {sortedQuestions.map((question, index) => (
                 <tr
                   key={question.id}
                   className="border-b border-white/5 hover:bg-white/5 transition-colors"
                 >
+                  <td className="py-3 px-4">
+                    <input
+                      type="checkbox"
+                      checked={selectedQuestionIds.has(question.id)}
+                      onChange={() => toggleQuestionSelection(question.id)}
+                      className="h-4 w-4 rounded border-white/30 bg-white/10 text-red-500 focus:ring-red-500"
+                      aria-label={`تحديد السؤال ${index + 1}`}
+                    />
+                  </td>
                   <td className="py-3 px-4 text-white/60">{index + 1}</td>
                   <td className="py-3 px-4 max-w-xs truncate">{question.question_text}</td>
                   <td className="py-3 px-4 max-w-xs truncate text-white/80">{question.correct_answer}</td>
@@ -825,6 +945,38 @@ export const QuestionManager: React.FC = () => {
               <GradientButton
                 variant="purple"
                 onClick={() => setShowDeleteConfirm(null)}
+                className="flex-1"
+              >
+                إلغاء
+              </GradientButton>
+            </div>
+          </div>
+        </ModalBackdrop>
+      )}
+
+      {/* Bulk Delete Confirmation Modal */}
+      {showBulkDeleteConfirm && (
+        <ModalBackdrop>
+          <div className="glass max-w-sm w-full rounded-2xl p-6 text-center max-h-[90vh] overflow-y-auto">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-full bg-red-500/20 flex items-center justify-center">
+              <span className="text-3xl">🗑️</span>
+            </div>
+            <h3 className="text-xl font-bold mb-2">تأكيد حذف الأسئلة المحددة</h3>
+            <p className="text-white/60 mb-6">
+              سيتم إخفاء {selectedQuestionCount} سؤال من لوحة التحكم والجولات الجديدة مع الاحتفاظ بسجلات الألعاب السابقة.
+            </p>
+            <div className="flex gap-3">
+              <GradientButton
+                variant="pink"
+                onClick={handleBulkDelete}
+                disabled={selectedQuestionCount === 0}
+                className="flex-1"
+              >
+                نعم، احذفها
+              </GradientButton>
+              <GradientButton
+                variant="purple"
+                onClick={() => setShowBulkDeleteConfirm(false)}
                 className="flex-1"
               >
                 إلغاء
