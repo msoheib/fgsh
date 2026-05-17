@@ -5,6 +5,7 @@ import { initializeSupabase, useGameStore, useAuthStore } from '@fakash/shared';
 
 // Pages
 import { Home } from './pages/Home';
+import { PlayMenu } from './pages/PlayMenu';
 import { CreateGame } from './pages/CreateGame';
 import { JoinGame } from './pages/JoinGame';
 import { HowToPlay } from './pages/HowToPlay';
@@ -104,6 +105,7 @@ function AppContent() {
     <>
       <Routes>
         <Route path="/" element={<Home />} />
+        <Route path="/play" element={<PlayMenu />} />
         <Route path="/join" element={<JoinGame />} />
         <Route path="/how-to-play" element={<HowToPlay />} />
 

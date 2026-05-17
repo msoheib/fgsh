@@ -122,10 +122,10 @@ export const HowToPlay: React.FC = () => {
           </GradientButton>
           <GradientButton
             variant="pink"
-            onClick={() => navigate('/join')}
+            onClick={() => navigate('/play')}
             className="flex-1"
           >
-            ابدأ اللعب
+            ابدأ اللعبه
           </GradientButton>
         </div>
       </GlassCard>

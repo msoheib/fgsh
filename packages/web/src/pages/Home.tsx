@@ -22,33 +22,26 @@ export const Home: React.FC = () => {
           <div className="text-center mb-6 sm:mb-8">
             <h2 className="text-xl sm:text-2xl md:text-3xl font-bold mb-3 sm:mb-4">مرحبا بك في فقش</h2>
             <p className="text-sm sm:text-base text-white/80 leading-relaxed">
-              لعبة المعلومات العامة والخداع الأكثر إثارة! أجب العتميذ واكتشف من الأكثب
-              في التمييز بين الحقائق والأكاذيب
+              لعبة جماعية مليئة بالحماس!
+              <br />
+              أجب، اخدع، واكتشف من بينكم الأذكى في تمييز الحقيقة.
             </p>
           </div>
         </GlassCard>
 
-        <div className="flex flex-col sm:flex-row gap-3 sm:gap-4 justify-center px-4 sm:px-0">
+        <div className="mx-auto flex w-full max-w-xl flex-col gap-3 sm:gap-4 px-4 sm:px-0">
           <GradientButton
             variant="pink"
-            onClick={() => navigate('/create')}
-            className="w-full sm:w-auto sm:min-w-[200px]"
+            onClick={() => navigate('/play')}
+            className="w-full"
           >
-            تجهيز غرفة
-          </GradientButton>
-
-          <GradientButton
-            variant="purple"
-            onClick={() => navigate('/join')}
-            className="w-full sm:w-auto sm:min-w-[200px]"
-          >
-            الانضمام للعبة
+            ابدأ اللعبه
           </GradientButton>
 
           <GradientButton
             variant="cyan"
             onClick={() => navigate('/how-to-play')}
-            className="w-full sm:w-auto sm:min-w-[200px]"
+            className="w-full"
           >
             كيف العب
           </GradientButton>
