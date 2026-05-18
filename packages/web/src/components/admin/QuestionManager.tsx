@@ -16,6 +16,21 @@ interface GeneratedQuestion {
 }
 
 type CategorySortDirection = 'none' | 'asc' | 'desc';
+type CsvDifficulty = QuestionInput['difficulty'];
+type CsvLanguage = QuestionInput['language'];
+
+interface CsvParseResult {
+  questions: QuestionInput[];
+  errors: string[];
+}
+
+const CSV_TEMPLATE_HEADERS = [
+  'question_text',
+  'correct_answer',
+  'category',
+  'difficulty',
+  'language',
+] as const;
 
 const DIFFICULTY_LABELS = {
   easy: 'سهل',
@@ -27,6 +42,9 @@ const LANGUAGE_LABELS = {
   ar: 'عربي',
   en: 'إنجليزي',
 };
+
+const ALLOWED_CSV_DIFFICULTIES: CsvDifficulty[] = ['easy', 'medium', 'hard'];
+const ALLOWED_CSV_LANGUAGES: CsvLanguage[] = ['ar', 'en'];
 
 const ModalBackdrop: React.FC<{ children: ReactNode }> = ({ children }) => {
   if (typeof document === 'undefined') {
@@ -54,6 +72,7 @@ export const QuestionManager: React.FC = () => {
   const [categorySort, setCategorySort] = useState<CategorySortDirection>('none');
   const [selectedQuestionIds, setSelectedQuestionIds] = useState<Set<string>>(new Set());
   const [uploadPreview, setUploadPreview] = useState<QuestionInput[] | null>(null);
+  const [uploadErrors, setUploadErrors] = useState<string[]>([]);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // AI Generation state
@@ -281,12 +300,17 @@ export const QuestionManager: React.FC = () => {
       try {
         const content = e.target?.result as string;
         let parsed: QuestionInput[];
+        let parseErrors: string[] = [];
 
-        if (file.name.endsWith('.json')) {
+        const fileName = file.name.toLowerCase();
+
+        if (fileName.endsWith('.json')) {
           parsed = JSON.parse(content);
-        } else if (file.name.endsWith('.csv')) {
-          parsed = parseCSV(content);
-        } else if (file.name.endsWith('.txt')) {
+        } else if (fileName.endsWith('.csv')) {
+          const result = parseCSV(content);
+          parsed = result.questions;
+          parseErrors = result.errors;
+        } else if (fileName.endsWith('.txt')) {
           parsed = parseTXT(content);
         } else {
           toast.error('يرجى رفع ملف CSV أو JSON أو TXT');
@@ -299,38 +323,148 @@ export const QuestionManager: React.FC = () => {
         );
 
         if (validQuestions.length === 0) {
-          toast.error('لم يتم العثور على أسئلة صالحة في الملف');
+          toast.error(parseErrors[0] || 'لم يتم العثور على أسئلة صالحة في الملف');
           return;
         }
 
         setUploadPreview(validQuestions);
+        setUploadErrors(parseErrors);
         setShowUploadModal(true);
       } catch (error) {
-        toast.error('حدث خطأ في قراءة الملف');
+        toast.error(error instanceof Error ? error.message : 'حدث خطأ في قراءة الملف');
       }
     };
     reader.readAsText(file);
   };
 
-  const parseCSV = (content: string): QuestionInput[] => {
-    const lines = content.split('\n').filter((line) => line.trim());
-    const headers = lines[0].split(',').map((h) => h.trim().toLowerCase());
+  const parseCSVRows = (content: string): string[][] => {
+    const rows: string[][] = [];
+    let row: string[] = [];
+    let value = '';
+    let inQuotes = false;
 
-    return lines.slice(1).map((line) => {
-      const values = line.split(',').map((v) => v.trim());
+    for (let i = 0; i < content.length; i += 1) {
+      const char = content[i];
+      const nextChar = content[i + 1];
+
+      if (char === '"') {
+        if (inQuotes && nextChar === '"') {
+          value += '"';
+          i += 1;
+        } else {
+          inQuotes = !inQuotes;
+        }
+        continue;
+      }
+
+      if (char === ',' && !inQuotes) {
+        row.push(value.trim());
+        value = '';
+        continue;
+      }
+
+      if ((char === '\n' || char === '\r') && !inQuotes) {
+        if (char === '\r' && nextChar === '\n') {
+          i += 1;
+        }
+        row.push(value.trim());
+        if (row.some((cell) => cell.length > 0)) {
+          rows.push(row);
+        }
+        row = [];
+        value = '';
+        continue;
+      }
+
+      value += char;
+    }
+
+    if (inQuotes) {
+      throw new Error('ملف CSV يحتوي على علامة اقتباس غير مغلقة');
+    }
+
+    row.push(value.trim());
+    if (row.some((cell) => cell.length > 0)) {
+      rows.push(row);
+    }
+
+    return rows;
+  };
+
+  const normalizeCsvHeader = (value: string) => value.replace(/^\uFEFF/, '').trim().toLowerCase();
+
+  const parseCSV = (content: string): CsvParseResult => {
+    const rows = parseCSVRows(content);
+
+    if (rows.length === 0) {
+      throw new Error('ملف CSV فارغ');
+    }
+
+    const headers = rows[0].map(normalizeCsvHeader);
+    const requiredHeaders = ['question_text', 'correct_answer', 'category'];
+    const allowedHeaders = new Set<string>(CSV_TEMPLATE_HEADERS);
+    const missingHeaders = requiredHeaders.filter((header) => !headers.includes(header));
+    const unknownHeaders = headers.filter((header) => header && !allowedHeaders.has(header));
+
+    if (missingHeaders.length > 0) {
+      throw new Error(`أعمدة CSV المطلوبة غير موجودة: ${missingHeaders.join(', ')}`);
+    }
+
+    if (unknownHeaders.length > 0) {
+      throw new Error(`أسماء أعمدة CSV غير معروفة: ${unknownHeaders.join(', ')}`);
+    }
+
+    const questions: QuestionInput[] = [];
+    const errors: string[] = [];
+
+    rows.slice(1).forEach((row, rowIndex) => {
+      const lineNumber = rowIndex + 2;
       const obj: Record<string, string> = {};
       headers.forEach((header, index) => {
-        obj[header] = values[index] || '';
+        obj[header] = row[index]?.trim() || '';
       });
 
-      return {
-        question_text: obj.question_text || obj.question || '',
-        correct_answer: obj.correct_answer || obj.answer || '',
-        category: obj.category || '',
-        difficulty: (obj.difficulty as 'easy' | 'medium' | 'hard') || 'medium',
-        language: (obj.language as 'ar' | 'en') || 'ar',
-      };
+      const questionText = obj.question_text;
+      const correctAnswer = obj.correct_answer;
+      const category = obj.category;
+      const difficultyRaw = (obj.difficulty || 'medium').toLowerCase();
+      const languageRaw = (obj.language || 'ar').toLowerCase();
+
+      if (!questionText) {
+        errors.push(`السطر ${lineNumber}: question_text مطلوب`);
+        return;
+      }
+
+      if (!correctAnswer) {
+        errors.push(`السطر ${lineNumber}: correct_answer مطلوب`);
+        return;
+      }
+
+      if (!category) {
+        errors.push(`السطر ${lineNumber}: category مطلوب`);
+        return;
+      }
+
+      if (!ALLOWED_CSV_DIFFICULTIES.includes(difficultyRaw as CsvDifficulty)) {
+        errors.push(`السطر ${lineNumber}: difficulty يجب أن يكون easy أو medium أو hard`);
+        return;
+      }
+
+      if (!ALLOWED_CSV_LANGUAGES.includes(languageRaw as CsvLanguage)) {
+        errors.push(`السطر ${lineNumber}: language يجب أن يكون ar أو en`);
+        return;
+      }
+
+      questions.push({
+        question_text: questionText,
+        correct_answer: correctAnswer,
+        category,
+        difficulty: difficultyRaw as CsvDifficulty,
+        language: languageRaw as CsvLanguage,
+      });
     });
+
+    return { questions, errors };
   };
 
   const parseTXT = (content: string): QuestionInput[] => {
@@ -493,6 +627,7 @@ export const QuestionManager: React.FC = () => {
       }
       setShowUploadModal(false);
       setUploadPreview(null);
+      setUploadErrors([]);
       if (fileInputRef.current) {
         fileInputRef.current.value = '';
       }
@@ -634,8 +769,15 @@ export const QuestionManager: React.FC = () => {
             variant="purple"
             onClick={() => fileInputRef.current?.click()}
           >
-            رفع ملف
+            رفع CSV
           </GradientButton>
+          <a
+            href="/fgsh-question-template.csv"
+            download
+            className="btn-gradient btn-purple text-base sm:text-lg min-h-[48px] sm:min-h-[56px] px-6 sm:px-8 inline-flex items-center justify-center"
+          >
+            تحميل قالب CSV
+          </a>
           <GradientButton
             variant="cyan"
             onClick={() => { setShowAIGenerateModal(true); setAiPreview(null); }}
@@ -645,7 +787,7 @@ export const QuestionManager: React.FC = () => {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".json,.csv,.txt"
+            accept=".csv,.json,.txt,text/csv"
             onChange={handleFileUpload}
             className="hidden"
           />
@@ -993,6 +1135,20 @@ export const QuestionManager: React.FC = () => {
             <h3 className="text-xl font-bold mb-4">معاينة الأسئلة للاستيراد</h3>
             <p className="text-white/60 mb-4">تم العثور على {uploadPreview.length} سؤال صالح</p>
 
+            {uploadErrors.length > 0 && (
+              <div className="mb-4 rounded-xl border border-yellow-400/30 bg-yellow-500/10 p-3 text-sm text-yellow-100">
+                <p className="mb-2 font-semibold">تم تجاهل {uploadErrors.length} صف بسبب أخطاء في CSV:</p>
+                <ul className="space-y-1 list-disc list-inside">
+                  {uploadErrors.slice(0, 8).map((error) => (
+                    <li key={error}>{error}</li>
+                  ))}
+                </ul>
+                {uploadErrors.length > 8 && (
+                  <p className="mt-2 text-yellow-100/70">... و {uploadErrors.length - 8} أخطاء أخرى</p>
+                )}
+              </div>
+            )}
+
             <div className="space-y-3 mb-6 max-h-[50vh] overflow-y-auto">
               {uploadPreview.slice(0, 10).map((q, index) => (
                 <div key={index} className="bg-white/5 rounded-xl p-3">
@@ -1016,7 +1172,7 @@ export const QuestionManager: React.FC = () => {
               </GradientButton>
               <GradientButton
                 variant="purple"
-                onClick={() => { setShowUploadModal(false); setUploadPreview(null); }}
+                onClick={() => { setShowUploadModal(false); setUploadPreview(null); setUploadErrors([]); }}
                 className="flex-1"
               >
                 إلغاء
