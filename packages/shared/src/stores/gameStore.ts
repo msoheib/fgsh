@@ -1898,6 +1898,7 @@ export const useGameStore = create<GameState>((set, get) => ({
       }
     }
 
+    clearGameSession();
     get().reset();
   },
 

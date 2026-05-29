@@ -444,23 +444,29 @@ export const Game: React.FC = () => {
     }
   }, [expectedRoundNumber, recoverRoundState]);
 
-  const clearPendingConfirmation = useCallback(() => {
+  const clearPendingConfirmation = useCallback((restorePersistedVoteSelection = false) => {
     setPendingConfirmation(null);
     setConfirmationSecondsLeft(GAME_CONFIG.CONFIRMATION_TIMER);
     setIsConfirmingChoice(false);
+
+    if (restorePersistedVoteSelection) {
+      const persistedVote = useRoundStore.getState().myVote;
+      setSelectedAnswer(persistedVote || null);
+      useRoundStore.setState({ hasSubmittedVote: !!persistedVote });
+    }
   }, []);
 
   const confirmPendingChoice = useCallback(async () => {
     if (!pendingConfirmation || !currentPlayer || isConfirmingChoice) return;
     if (!currentRound || currentRound.id !== pendingConfirmation.roundId) {
-      clearPendingConfirmation();
+      clearPendingConfirmation(pendingConfirmation.kind === 'vote');
       return;
     }
 
     const isAnswerConfirmation = pendingConfirmation.kind === 'answer';
     const expectedStatus = isAnswerConfirmation ? 'answering' : 'voting';
     if (roundStatus !== expectedStatus || !timerActive || timeRemaining <= 0) {
-      clearPendingConfirmation();
+      clearPendingConfirmation(pendingConfirmation.kind === 'vote');
       return;
     }
 
@@ -482,10 +488,10 @@ export const Game: React.FC = () => {
         });
         await submitVote(currentPlayer.id, pendingConfirmation.answerId);
         const persistedVote = useRoundStore.getState().myVote;
-        setSelectedAnswer(persistedVote || pendingConfirmation.answerId);
+        setSelectedAnswer(persistedVote || null);
         console.info('[VoteAudit] vote persisted', {
           roundId: pendingConfirmation.roundId,
-          answerId: persistedVote || pendingConfirmation.answerId,
+          answerId: persistedVote,
           answerText: pendingConfirmation.answerText,
         });
         shouldSyncAfterConfirm = 'vote-confirm';
@@ -594,7 +600,7 @@ export const Game: React.FC = () => {
       timeRemaining <= 0;
 
     if (shouldCancel) {
-      clearPendingConfirmation();
+      clearPendingConfirmation(pendingConfirmation.kind === 'vote');
     }
   }, [clearPendingConfirmation, currentRound?.id, pendingConfirmation, roundStatus, timeRemaining]);
 
@@ -702,9 +708,11 @@ export const Game: React.FC = () => {
     playWarningBeep();
   }, [currentRound?.id, timerActive, roundStatus, timeRemaining]);
 
-  // Handle timer expiration - call server-side force_advance_round
+  // Handle timer expiration - call server-side force_advance_round.
+  // Controllers are eligible at the deadline; other active clients are eligible
+  // after the server-side grace window enforced by force_advance_round_as_player.
   useEffect(() => {
-    if (!currentRound || !currentPlayer || !canControlFlow || timeRemaining !== 0) return;
+    if (!currentRound || !currentPlayer || timeRemaining !== 0) return;
     if (roundStatus !== 'answering' && roundStatus !== 'voting') return;
 
     // Guard: only allow force-advance if the timer was actively initialized
@@ -712,7 +720,10 @@ export const Game: React.FC = () => {
     // phase from triggering force_advance_round on the new phase.
     if (phaseTimerInitializedRef.current !== roundStatus) return;
 
-    const forceKey = `${currentRound.id}:${roundStatus}`;
+    const timing = getForceAdvanceWindow(currentRound);
+    if (!timing) return;
+
+    const forceKey = `${currentRound.id}:${roundStatus}:${canControlFlow ? 'controller' : 'active-client'}`;
     if (forceAdvanceKeyRef.current === forceKey) return;
     forceAdvanceKeyRef.current = forceKey;
     
@@ -721,19 +732,28 @@ export const Game: React.FC = () => {
       try {
         const { GameService } = await import('@fakash/shared');
         await GameService.forceAdvanceRound(currentRound.id, currentPlayer.id);
-        await syncRoundStateAfterServerAdvance('controller');
+        await syncRoundStateAfterServerAdvance(canControlFlow ? 'controller' : 'fallback');
         console.log('Server processing timer expiration');
       } catch (err) {
         console.error('Error calling force_advance_round:', err);
-        await syncRoundStateAfterServerAdvance('controller');
+        await syncRoundStateAfterServerAdvance(canControlFlow ? 'controller' : 'fallback');
         forceAdvanceKeyRef.current = null;
       }
     };
     
-    // Small delay to prevent multiple rapid calls
-    const timer = setTimeout(handleTimerExpired, 500);
+    // Small buffer keeps client/server clock skew from firing before the RPC's allowed window.
+    const delayMs = Math.max(0, timing.eligibleAt - Date.now()) + 500;
+    const timer = setTimeout(handleTimerExpired, delayMs);
     return () => clearTimeout(timer);
-  }, [currentPlayer?.id, currentRound?.id, timeRemaining, roundStatus, canControlFlow, syncRoundStateAfterServerAdvance]);
+  }, [
+    canControlFlow,
+    currentPlayer?.id,
+    currentRound,
+    getForceAdvanceWindow,
+    roundStatus,
+    syncRoundStateAfterServerAdvance,
+    timeRemaining,
+  ]);
 
   // Clear force-advance guard when a new timer starts or round changes.
   useEffect(() => {
@@ -1085,7 +1105,6 @@ export const Game: React.FC = () => {
     if (selectedAnswer && groupAnswerIds.includes(selectedAnswer)) return;
 
     const selectedOption = combinedAnswers.find((answer) => answer.answerIds.includes(answerId));
-    setSelectedAnswer(answerId);
     vibrate(50);
     setPendingConfirmation({
       kind: 'vote',
@@ -1363,10 +1382,7 @@ export const Game: React.FC = () => {
               <button
                 onClick={() => {
                   vibrate(30);
-                  if (pendingConfirmation.kind === 'vote') {
-                    setSelectedAnswer(myVote || null);
-                  }
-                  clearPendingConfirmation();
+                  clearPendingConfirmation(pendingConfirmation.kind === 'vote');
                 }}
                 disabled={isConfirmingChoice}
                 className="rounded-xl border border-white/20 bg-white/10 py-3 text-sm font-bold text-white disabled:opacity-50"
