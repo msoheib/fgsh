@@ -129,7 +129,7 @@ export interface GameEndedEvent {
 export interface ScoreResult {
   player_id: string;
   points_earned: number;
-  reason: 'correct_answer' | 'fooled_players' | 'fell_for_lie' | 'perfect_fake' | 'round_winner';
+  reason: 'correct_answer' | 'correct_submission' | 'fooled_players' | 'fell_for_lie' | 'perfect_fake' | 'round_winner';
 }
 
 export interface RoundResult {

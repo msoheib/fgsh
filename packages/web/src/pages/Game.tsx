@@ -243,6 +243,12 @@ export const Game: React.FC = () => {
     !!currentPlayer && allAnswers.some((answer) => answer.is_correct && answer.player_id === currentPlayer.id)
   ), [allAnswers, currentPlayer]);
 
+  const visibleVotingAnswers = useMemo(() => (
+    currentPlayerAlsoWroteTruth
+      ? combinedAnswers.filter((answer) => !answer.hasCorrectAnswer)
+      : combinedAnswers
+  ), [combinedAnswers, currentPlayerAlsoWroteTruth]);
+
   const finishCategorySelection = useCallback(async (selectedCategory: string | null) => {
     if (game && currentPlayer) {
       try {
@@ -1104,7 +1110,7 @@ export const Game: React.FC = () => {
     if (!canSelectVote || !currentPlayer || !currentRound) return;
     if (selectedAnswer && groupAnswerIds.includes(selectedAnswer)) return;
 
-    const selectedOption = combinedAnswers.find((answer) => answer.answerIds.includes(answerId));
+    const selectedOption = visibleVotingAnswers.find((answer) => answer.answerIds.includes(answerId));
     vibrate(50);
     setPendingConfirmation({
       kind: 'vote',
@@ -1265,11 +1271,14 @@ export const Game: React.FC = () => {
             <p className="text-center text-sm mb-3 text-white/60">اختر الإجابة الصحيحة</p>
             {currentPlayerAlsoWroteTruth && (
               <p className="text-center text-xs text-emerald-300 mb-3">
+                <span className="block">
+                  You submitted the correct answer. You will receive correct-answer points, but no vote points from this answer. Your vote this round will not affect scores.
+                </span>
                 أنت أيضًا كتبت الإجابة الصحيحة.
               </p>
             )}
             <div className="space-y-2">
-              {combinedAnswers.map((answer) => {
+              {visibleVotingAnswers.map((answer) => {
                 const isOwn = !answer.hasCorrectAnswer && answer.playerIds.includes(currentPlayer.id);
                 const isSelected = selectedAnswer !== null && answer.answerIds.includes(selectedAnswer);
                 return (

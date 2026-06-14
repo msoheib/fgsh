@@ -114,6 +114,11 @@ interface AnswerRow {
   is_correct: boolean;
 }
 
+interface QuestionRow {
+  id: string;
+  correct_answer: string;
+}
+
 interface VoteRow {
   id: string;
   round_id: string;
@@ -219,6 +224,35 @@ async function restSelect<T>(table: string, params: Record<string, string>): Pro
   }
 
   return await response.json() as T[];
+}
+
+async function restRpc<T>(
+  functionName: string,
+  body: Record<string, unknown>
+): Promise<{ ok: boolean; status: number; data: T | null; text: string }> {
+  const config = getSupabaseConfig();
+  const response = await fetch(`${config.url}/rest/v1/rpc/${functionName}`, {
+    method: 'POST',
+    headers: {
+      apikey: config.anonKey,
+      authorization: `Bearer ${config.anonKey}`,
+      'content-type': 'application/json',
+      accept: 'application/json',
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await response.text();
+  let data: T | null = null;
+
+  if (text.trim().length > 0) {
+    try {
+      data = JSON.parse(text) as T;
+    } catch {
+      data = null;
+    }
+  }
+
+  return { ok: response.ok, status: response.status, data, text };
 }
 
 async function authenticateHostContext(context: BrowserContext, email: string, password: string) {
@@ -538,6 +572,20 @@ async function fetchRoundAnswers(roundId: string): Promise<AnswerRow[]> {
   });
 }
 
+async function fetchQuestion(questionId: string): Promise<QuestionRow> {
+  const rows = await restSelect<QuestionRow>('questions', {
+    select: 'id,correct_answer',
+    id: `eq.${questionId}`,
+    limit: '1',
+  });
+
+  if (!rows[0]) {
+    throw new Error(`Question ${questionId} was not found.`);
+  }
+
+  return rows[0];
+}
+
 async function fetchVotes(roundId: string): Promise<VoteRow[]> {
   return await restSelect<VoteRow>('votes', {
     select: 'id,round_id,voter_id,answer_id,points_earned',
@@ -655,15 +703,7 @@ async function submitAllAnswers(room: RoomSession, answerPrefix: string): Promis
     const answer = `${answerPrefix} answer ${index + 1} ${Date.now()}`;
     submittedAnswers.set(player.playerId, answer);
 
-    const input = player.page.locator('input[type="text"]').first();
-    await input.fill(answer);
-    await player.page.locator('button.bg-gradient-to-r.from-pink-500.to-purple-500').first().click();
-    await clickConfirmationIfPresent(player.page);
-    await expect.poll(async () => {
-      const inputVisible = await input.isVisible().catch(() => false);
-      const optionCount = await votingOptionCount(player.page).catch(() => 0);
-      return !inputVisible || optionCount > 1;
-    }, { timeout: 30_000 }).toBe(true);
+    await submitAnswerText(player, answer);
   }));
 
   await Promise.all(room.players.map((player) =>
@@ -671,6 +711,18 @@ async function submitAllAnswers(room: RoomSession, answerPrefix: string): Promis
   ));
 
   return submittedAnswers;
+}
+
+async function submitAnswerText(player: PlayerSession, answer: string) {
+  const input = player.page.locator('input[type="text"]').first();
+  await input.fill(answer);
+  await player.page.locator('button.bg-gradient-to-r.from-pink-500.to-purple-500').first().click();
+  await clickConfirmationIfPresent(player.page);
+  await expect.poll(async () => {
+    const inputVisible = await input.isVisible().catch(() => false);
+    const optionCount = await votingOptionCount(player.page).catch(() => 0);
+    return !inputVisible || optionCount > 1;
+  }, { timeout: 30_000 }).toBe(true);
 }
 
 async function waitForRoundStatus(gameId: string, status: string, timeoutMs: number): Promise<RoundRow> {
@@ -779,6 +831,11 @@ async function runDeterministicVoteAndScoreCase(browser: Browser, report: LiveRe
       [p2.playerId, p1Answer.id],
       [p3.playerId, correctAnswer.id],
     ]);
+    const expectedVotePoints = new Map([
+      [p1.playerId, 0],
+      [p2.playerId, 0],
+      [p3.playerId, 1000],
+    ]);
 
     for (const [voterId, expectedAnswerId] of expectedVotes) {
       const persistedVote = votesByVoter.get(voterId);
@@ -787,6 +844,10 @@ async function runDeterministicVoteAndScoreCase(browser: Browser, report: LiveRe
       }
       if (persistedVote.answer_id !== expectedAnswerId) {
         throw new Error(`Vote mismatch for ${voterId}: expected ${expectedAnswerId}, got ${persistedVote.answer_id}.`);
+      }
+      const expectedPoints = expectedVotePoints.get(voterId);
+      if (expectedPoints !== undefined && persistedVote.points_earned !== expectedPoints) {
+        throw new Error(`Vote points mismatch for ${voterId}: expected ${expectedPoints}, got ${persistedVote.points_earned}.`);
       }
     }
 
@@ -804,7 +865,252 @@ async function runDeterministicVoteAndScoreCase(browser: Browser, report: LiveRe
 
     await captureScreenshot(report, room.tvPage, 'Deterministic vote scoring reveal', 'vote-score-reveal.png');
     const scoreSummary = players.map((player) => `${player.user_name}:${player.score}`).join(', ');
-    return `All 3 votes persisted exactly once and scores matched expected totals (${scoreSummary}).`;
+    const votePointSummary = votes.map((vote) => `${vote.voter_id}:${vote.points_earned}`).join(', ');
+    return `All 3 votes persisted exactly once, vote points matched, and scores matched expected totals (${scoreSummary}; vote points ${votePointSummary}).`;
+  } finally {
+    await closeRoom(room);
+  }
+}
+
+async function runSystemFakePenaltyScoreCase(browser: Browser, report: LiveReport, baseUrl: string): Promise<string> {
+  let room: RoomSession | undefined;
+
+  try {
+    room = await createRoom(browser, report, baseUrl, 'SysFake', 3);
+    await startGame(room);
+    await submitAllAnswers(room, 'SysFake');
+    const round = await waitForRoundStatus(room.gameId, 'voting', 15_000);
+
+    const answers = await pollUntil(
+      () => fetchRoundAnswers(round.id),
+      (rows) =>
+        rows.filter((row) => row.player_id).length === 3 &&
+        rows.some((row) => row.is_correct && !row.player_id),
+      10_000,
+      'round answers including system truth'
+    );
+    const answerByPlayer = new Map(answers.filter((answer) => answer.player_id).map((answer) => [answer.player_id!, answer]));
+    const correctAnswer = answers.find((answer) => answer.is_correct && !answer.player_id);
+    const systemFakeAnswer = answers.find((answer) => !answer.is_correct && !answer.player_id);
+    const [p1, p2, p3] = room.players;
+
+    const p2Answer = answerByPlayer.get(p2.playerId);
+    if (!p2Answer || !correctAnswer) {
+      throw new Error('Could not map player fake and correct answer for system-fake scoring.');
+    }
+
+    if (!systemFakeAnswer) {
+      return 'No system fake answer was injected in this live round, so the system-fake penalty path was not exercised.';
+    }
+
+    await voteForAnswerText(p1.page, p2Answer.answer_text);
+    await voteForAnswerText(p2.page, systemFakeAnswer.answer_text);
+    await voteForAnswerText(p3.page, correctAnswer.answer_text);
+    await waitForRoundStatus(room.gameId, 'completed', 30_000);
+
+    const votes = await pollUntil(
+      () => fetchVotes(round.id),
+      (rows) => rows.length === 3,
+      10_000,
+      'three persisted vote rows for system fake scoring'
+    );
+    const votesByVoter = new Map(votes.map((vote) => [vote.voter_id, vote]));
+
+    const expectedVotes = new Map([
+      [p1.playerId, p2Answer.id],
+      [p2.playerId, systemFakeAnswer.id],
+      [p3.playerId, correctAnswer.id],
+    ]);
+    const expectedVotePoints = new Map([
+      [p1.playerId, 0],
+      [p2.playerId, -500],
+      [p3.playerId, 1000],
+    ]);
+
+    for (const [voterId, expectedAnswerId] of expectedVotes) {
+      const persistedVote = votesByVoter.get(voterId);
+      if (!persistedVote) {
+        throw new Error(`Missing persisted vote for ${voterId}.`);
+      }
+      if (persistedVote.answer_id !== expectedAnswerId) {
+        throw new Error(`Vote mismatch for ${voterId}: expected ${expectedAnswerId}, got ${persistedVote.answer_id}.`);
+      }
+      const expectedPoints = expectedVotePoints.get(voterId);
+      if (expectedPoints !== undefined && persistedVote.points_earned !== expectedPoints) {
+        throw new Error(`Vote points mismatch for ${voterId}: expected ${expectedPoints}, got ${persistedVote.points_earned}.`);
+      }
+    }
+
+    const expectedScores = new Map([
+      [p1.playerId, 0],
+      [p2.playerId, 0],
+      [p3.playerId, 1000],
+    ]);
+    const players = await pollUntil(
+      () => fetchPlayers(room!.gameId),
+      (rows) => rows.every((player) => expectedScores.get(player.id) === undefined || player.score === expectedScores.get(player.id)),
+      10_000,
+      'expected system fake scores'
+    );
+
+    await captureScreenshot(report, room.tvPage, 'System fake penalty scoring reveal', 'system-fake-penalty-reveal.png');
+    const scoreSummary = players.map((player) => `${player.user_name}:${player.score}`).join(', ');
+    const votePointSummary = votes.map((vote) => `${vote.voter_id}:${vote.points_earned}`).join(', ');
+    return `System fake penalty, fake-owner reward, and correct-vote reward matched expected totals (${scoreSummary}; vote points ${votePointSummary}).`;
+  } finally {
+    await closeRoom(room);
+  }
+}
+
+async function runCorrectSubmissionFakeOnlyVotingCase(browser: Browser, report: LiveReport, baseUrl: string): Promise<string> {
+  let room: RoomSession | undefined;
+  const normalize = (value: string) => value.trim().toLocaleLowerCase();
+  const correctSubmitterMessage =
+    'You submitted the correct answer. You will receive correct-answer points, but no vote points from this answer. Your vote this round will not affect scores.';
+
+  try {
+    room = await createRoom(browser, report, baseUrl, 'TruthSubmit', 3);
+    await startGame(room);
+
+    const answeringRound = await waitForRoundStatus(room.gameId, 'answering', 15_000);
+    const question = await fetchQuestion(answeringRound.question_id);
+    const [truthSubmitter, fakeOwner, normalVoter] = room.players;
+    const fakeOwnerAnswerText = `TruthSubmit fake owner ${Date.now()}`;
+    const normalVoterAnswerText = `TruthSubmit normal fake ${Date.now()}`;
+
+    await Promise.all([
+      submitAnswerText(truthSubmitter, question.correct_answer),
+      submitAnswerText(fakeOwner, fakeOwnerAnswerText),
+      submitAnswerText(normalVoter, normalVoterAnswerText),
+    ]);
+
+    const round = await waitForRoundStatus(room.gameId, 'voting', 15_000);
+    const answers = await pollUntil(
+      () => fetchRoundAnswers(round.id),
+      (rows) => (
+        rows.some((row) => row.player_id === truthSubmitter.playerId && row.is_correct) &&
+        rows.some((row) => row.is_correct && !row.player_id) &&
+        rows.some((row) => row.player_id === fakeOwner.playerId && row.answer_text === fakeOwnerAnswerText)
+      ),
+      10_000,
+      'truth submitter answer, fake owner answer, and system truth'
+    );
+
+    const systemCorrectAnswer = answers.find((answer) => answer.is_correct && !answer.player_id);
+    const truthSubmitterAnswer = answers.find((answer) => answer.player_id === truthSubmitter.playerId);
+    const fakeOwnerAnswer = answers.find((answer) => answer.player_id === fakeOwner.playerId);
+
+    if (!systemCorrectAnswer || !truthSubmitterAnswer || !fakeOwnerAnswer) {
+      throw new Error('Could not map correct-submission test answers.');
+    }
+
+    await expect(truthSubmitter.page.getByText(correctSubmitterMessage)).toBeVisible({ timeout: 10_000 });
+    const truthSubmitterOptionTexts = await truthSubmitter.page
+      .locator('button.w-full.p-3.rounded-xl.text-right')
+      .allInnerTexts();
+
+    if (truthSubmitterOptionTexts.length === 0) {
+      throw new Error('Truth submitter had no fake answers available to vote for.');
+    }
+
+    if (truthSubmitterOptionTexts.some((text) => normalize(text) === normalize(question.correct_answer))) {
+      throw new Error('Truth submitter could still see the official correct answer as a voting option.');
+    }
+
+    await expect(
+      fakeOwner.page
+        .locator('button.w-full.p-3.rounded-xl.text-right')
+        .filter({ hasText: question.correct_answer })
+        .first()
+    ).toBeVisible({ timeout: 10_000 });
+
+    const truthSubmitterSession = await storedGameSession(truthSubmitter.page);
+    if (!truthSubmitterSession?.playerToken) {
+      throw new Error('Truth submitter session token was not available for RPC probe.');
+    }
+
+    const rejectedCorrectVote = await restRpc<VoteRow>('cast_vote', {
+      p_round_id: round.id,
+      p_voter_id: truthSubmitter.playerId,
+      p_player_token: truthSubmitterSession.playerToken,
+      p_answer_id: systemCorrectAnswer.id,
+    });
+
+    if (rejectedCorrectVote.ok) {
+      throw new Error('cast_vote allowed a correct-answer submitter to vote for the official correct answer.');
+    }
+
+    if (!rejectedCorrectVote.text.includes('Correct-answer submitters cannot vote for the correct answer')) {
+      throw new Error(`Unexpected RPC rejection for correct submitter truth vote: HTTP ${rejectedCorrectVote.status} ${rejectedCorrectVote.text.slice(0, 200)}`);
+    }
+
+    const votesAfterRejectedRpc = await fetchVotes(round.id);
+    if (votesAfterRejectedRpc.some((vote) => vote.voter_id === truthSubmitter.playerId)) {
+      throw new Error('Rejected correct-answer vote still persisted a vote row.');
+    }
+
+    await captureScreenshot(report, truthSubmitter.page, 'Correct submitter fake-only voting options', 'correct-submitter-fake-only-voting.png');
+
+    await voteForAnswerText(truthSubmitter.page, fakeOwnerAnswer.answer_text);
+    await voteForAnswerText(fakeOwner.page, systemCorrectAnswer.answer_text);
+    await voteForAnswerText(normalVoter.page, systemCorrectAnswer.answer_text);
+
+    await waitForRoundStatus(room.gameId, 'completed', 30_000);
+
+    const votes = await pollUntil(
+      () => fetchVotes(round.id),
+      (rows) => rows.length === 3,
+      10_000,
+      'three persisted votes after correct-submission voting'
+    );
+    const votesByVoter = new Map(votes.map((vote) => [vote.voter_id, vote]));
+    const truthSubmitterVote = votesByVoter.get(truthSubmitter.playerId);
+    const fakeOwnerVote = votesByVoter.get(fakeOwner.playerId);
+    const normalVoterVote = votesByVoter.get(normalVoter.playerId);
+
+    if (truthSubmitterVote?.answer_id !== fakeOwnerAnswer.id) {
+      throw new Error(`Truth submitter fake vote mismatch: expected ${fakeOwnerAnswer.id}, got ${truthSubmitterVote?.answer_id || 'none'}.`);
+    }
+    if (fakeOwnerVote?.answer_id !== systemCorrectAnswer.id || normalVoterVote?.answer_id !== systemCorrectAnswer.id) {
+      throw new Error('Normal voters did not persist votes for the official correct answer.');
+    }
+
+    const scoredVotes = await pollUntil(
+      () => fetchVotes(round.id),
+      (rows) => (
+        rows.length === 3 &&
+        rows.some((vote) => vote.voter_id === truthSubmitter.playerId && vote.points_earned === 0) &&
+        rows.some((vote) => vote.voter_id === fakeOwner.playerId && vote.points_earned === 1000) &&
+        rows.some((vote) => vote.voter_id === normalVoter.playerId && vote.points_earned === 1000)
+      ),
+      10_000,
+      'expected correct-submission vote point rows'
+    );
+
+    const expectedScores = new Map([
+      [truthSubmitter.playerId, 1000],
+      [fakeOwner.playerId, 1000],
+      [normalVoter.playerId, 1000],
+    ]);
+    const players = await pollUntil(
+      () => fetchPlayers(room!.gameId),
+      (rows) => rows.every((player) => expectedScores.get(player.id) === undefined || player.score === expectedScores.get(player.id)),
+      10_000,
+      'expected correct-submission player scores'
+    );
+
+    await expect(
+      room.tvPage
+        .locator('.from-green-500.to-green-600')
+        .filter({ hasText: systemCorrectAnswer.answer_text })
+        .filter({ hasText: truthSubmitter.name })
+        .first()
+    ).toBeVisible({ timeout: 90_000 });
+    await captureScreenshot(report, room.tvPage, 'Correct submission reveal grouped with official answer', 'correct-submission-reveal.png');
+
+    const scoreSummary = players.map((player) => `${player.user_name}:${player.score}`).join(', ');
+    const votePointSummary = scoredVotes.map((vote) => `${vote.voter_id}:${vote.points_earned}`).join(', ');
+    return `Correct submitter saw fake-only voting, RPC rejected truth vote, correct-submission reward was applied, fake vote had zero score effect, and scores matched (${scoreSummary}; vote points ${votePointSummary}).`;
   } finally {
     await closeRoom(room);
   }
@@ -1131,30 +1437,55 @@ test.describe('live targeted regression battery', () => {
       const executablePath = resolveBrowserExecutable();
       browser = await chromium.launch(executablePath ? { executablePath } : undefined);
 
-      await runCase(report, 'Deterministic vote registration and scoring', () =>
+      const caseFilters = (process.env.FGSH_LIVE_REGRESSION_CASE_FILTER || '')
+        .split(',')
+        .map((item) => item.trim().toLowerCase())
+        .filter(Boolean);
+      const shouldRunCase = (label: string) =>
+        caseFilters.length === 0 || caseFilters.some((filter) => label.toLowerCase().includes(filter));
+      let selectedCaseCount = 0;
+      const runSelectedCase = async (label: string, execute: () => Promise<string>) => {
+        if (!shouldRunCase(label)) {
+          return;
+        }
+        selectedCaseCount += 1;
+        await runCase(report, label, execute);
+      };
+
+      await runSelectedCase('Deterministic vote registration and scoring', () =>
         runDeterministicVoteAndScoreCase(browser!, report, baseUrl)
       );
-      await runCase(report, 'Near-timeout selected vote must persist or clear cleanly', () =>
+      await runSelectedCase('System fake penalty and fake-owner scoring', () =>
+        runSystemFakePenaltyScoreCase(browser!, report, baseUrl)
+      );
+      await runSelectedCase('Correct submitter sees fake-only voting and correct-submission reward', () =>
+        runCorrectSubmissionFakeOnlyVotingCase(browser!, report, baseUrl)
+      );
+      await runSelectedCase('Near-timeout selected vote must persist or clear cleanly', () =>
         runNearTimeoutOptimisticVoteCase(browser!, report, baseUrl)
       );
-      await runCase(report, 'Answer timer reaches zero with active controller', () =>
+      await runSelectedCase('Answer timer reaches zero with active controller', () =>
         runActiveAnswerTimeoutCase(browser!, report, baseUrl)
       );
-      await runCase(report, 'Answer timer reaches zero with frozen controller', () =>
+      await runSelectedCase('Answer timer reaches zero with frozen controller', () =>
         runFrozenControllerTimeoutCase(browser!, report, baseUrl)
       );
-      await runCase(report, 'Answer timer with controller force-advance RPC blocked', () =>
+      await runSelectedCase('Answer timer with controller force-advance RPC blocked', () =>
         runBlockedControllerForceAdvanceCase(browser!, report, baseUrl)
       );
-      await runCase(report, 'Voting timer reaches zero with active controller', () =>
+      await runSelectedCase('Voting timer reaches zero with active controller', () =>
         runActiveVotingTimeoutCase(browser!, report, baseUrl)
       );
-      await runCase(report, 'Play Again leaver can rejoin same lobby', () =>
+      await runSelectedCase('Play Again leaver can rejoin same lobby', () =>
         runPlayAgainLeaverRejoinCase(browser!, report, baseUrl)
       );
-      await runCase(report, 'Long question and answer text does not overlap or clip', () =>
+      await runSelectedCase('Long question and answer text does not overlap or clip', () =>
         runLongTextLayoutCase(browser!, report, baseUrl)
       );
+
+      if (selectedCaseCount === 0) {
+        throw new Error(`No live regression cases matched FGSH_LIVE_REGRESSION_CASE_FILTER=${process.env.FGSH_LIVE_REGRESSION_CASE_FILTER}`);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       report.blockers.push(message);

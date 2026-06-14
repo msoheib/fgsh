@@ -29,6 +29,22 @@ export function calculateRoundScores(
       .filter((answer) => !!answer.is_correct)
       .map((answer) => normalize(answer.answer_text))
   );
+  const truthAuthorIds = new Set(
+    answers
+      .filter((answer) => (
+        !!answer.player_id &&
+        (answer.is_correct || truthAnswerKeys.has(normalize(answer.answer_text)))
+      ))
+      .map((answer) => answer.player_id!)
+  );
+
+  truthAuthorIds.forEach((playerId) => {
+    scores.push({
+      player_id: playerId,
+      points_earned: GAME_CONFIG.POINTS.CORRECT_ANSWER * multiplier,
+      reason: 'correct_submission',
+    });
+  });
 
   // Create a map of answer_id -> votes
   const votesByAnswer = new Map<string, Vote[]>();
@@ -45,11 +61,14 @@ export function calculateRoundScores(
     votesByAnswer.get(vote.answer_id)!.push(vote);
   });
 
-  // Vote outcomes for voters:
+  // Vote outcomes for voters. Truth authors already scored for their submission,
+  // and their forced fake vote has no scoring effect.
   // - Correct answer: +1000
   // - System lie (no player author): -500
   // - Player lie: no penalty (0)
   votes.forEach((vote) => {
+    if (truthAuthorIds.has(vote.voter_id)) return;
+
     const votedAnswer = answersById.get(vote.answer_id);
     if (!votedAnswer) return;
     const isTruthEquivalent = votedAnswer.is_correct || truthAnswerKeys.has(normalize(votedAnswer.answer_text));
@@ -70,7 +89,8 @@ export function calculateRoundScores(
   });
 
   answers.forEach((answer) => {
-    const votesForAnswer = votesByAnswer.get(answer.id) || [];
+    const votesForAnswer = (votesByAnswer.get(answer.id) || [])
+      .filter((vote) => !truthAuthorIds.has(vote.voter_id));
     if (answer.is_correct || !answer.player_id || truthAnswerKeys.has(normalize(answer.answer_text))) return;
 
     // Fake answer owner gains points for each fooled player
@@ -117,12 +137,21 @@ export function getFooledRelationships(
       .filter((answer) => !!answer.is_correct)
       .map((answer) => normalize(answer.answer_text))
   );
+  const truthAuthorIds = new Set(
+    answers
+      .filter((answer) => (
+        !!answer.player_id &&
+        (answer.is_correct || truthAnswerKeys.has(normalize(answer.answer_text)))
+      ))
+      .map((answer) => answer.player_id!)
+  );
 
   answers
     .filter((a) => !a.is_correct && a.player_id !== null && !truthAnswerKeys.has(normalize(a.answer_text)))
     .forEach((answer) => {
       const fooledBy = votes
         .filter((v) => v.answer_id === answer.id)
+        .filter((v) => !truthAuthorIds.has(v.voter_id))
         .map((v) => v.voter_id);
 
       if (fooledBy.length > 0 && answer.player_id) {
