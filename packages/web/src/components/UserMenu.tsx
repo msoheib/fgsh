@@ -1,13 +1,34 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuthStore } from '@fakash/shared';
+import { AuthModal } from './auth/AuthModal';
 
 export const UserMenu: React.FC = () => {
-  const { user, signOut } = useAuthStore();
+  const { user, loading, signOut } = useAuthStore();
   const navigate = useNavigate();
   const [isOpen, setIsOpen] = useState(false);
+  const [showAuthModal, setShowAuthModal] = useState(false);
 
-  if (!user) return null;
+  if (!user) {
+    return (
+      <>
+        <button
+          type="button"
+          onClick={() => setShowAuthModal(true)}
+          disabled={loading}
+          className="min-h-[44px] px-4 py-2 rounded-lg bg-white/10 hover:bg-white/20 transition-colors text-sm font-medium disabled:opacity-50"
+        >
+          تسجيل الدخول
+        </button>
+        {showAuthModal && (
+          <AuthModal
+            isOpen
+            onClose={() => setShowAuthModal(false)}
+          />
+        )}
+      </>
+    );
+  }
 
   const handleSignOut = async () => {
     await signOut();

@@ -8,6 +8,7 @@ import { Logo } from '../components/Logo';
 import { QuestionManager } from '../components/admin/QuestionManager';
 import { UserManager } from '../components/admin/UserManager';
 import { AudioCueManager } from '../components/admin/AudioCueManager';
+import { LoginForm } from '../components/auth/LoginForm';
 
 type TabType = 'questions' | 'users' | 'audio';
 
@@ -15,58 +16,53 @@ export const Admin: React.FC = () => {
   const navigate = useNavigate();
   const { user, loading: authLoading, signOut } = useAuthStore();
   const [activeTab, setActiveTab] = useState<TabType>('questions');
-  const [isAdmin, setIsAdmin] = useState<boolean | null>(null);
-  const [isAwaitingApproval, setIsAwaitingApproval] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [access, setAccess] = useState<{
+    userId: string;
+    isAdmin: boolean;
+    isAwaitingApproval: boolean;
+  } | null>(null);
+  const userId = user?.id;
 
   useEffect(() => {
-    if (!authLoading && !user) {
-      navigate('/');
+    setAccess(null);
+    if (!userId) {
       return;
     }
 
-    if (user) {
-      checkAdminStatus();
-    }
-  }, [user, authLoading, navigate]);
+    let cancelled = false;
+    const checkAdminStatus = async () => {
+      try {
+        const isAdmin = await AdminService.isAdmin();
+        const isAwaitingApproval = !isAdmin && await AdminService.isAwaitingApproval();
 
-  const checkAdminStatus = async () => {
-    setLoading(true);
-    try {
-      const adminStatus = await AdminService.isAdmin();
-      setIsAdmin(adminStatus);
-
-      if (!adminStatus) {
-        const awaitingStatus = await AdminService.isAwaitingApproval();
-        setIsAwaitingApproval(awaitingStatus);
+        if (!cancelled) {
+          setAccess({ userId, isAdmin, isAwaitingApproval });
+        }
+      } catch (error) {
+        console.error('Failed to check admin status:', error);
+        if (!cancelled) {
+          setAccess({ userId, isAdmin: false, isAwaitingApproval: false });
+        }
       }
-    } catch (error) {
-      console.error('Failed to check admin status:', error);
-      setIsAdmin(false);
-    } finally {
-      setLoading(false);
-    }
-  };
+    };
+
+    checkAdminStatus();
+    return () => { cancelled = true; };
+  }, [userId]);
 
   const handleSignOut = async () => {
     await signOut();
     navigate('/');
   };
 
-  if (authLoading || loading) {
-    return (
-      <div className="min-h-screen flex items-center justify-center">
-        <LoadingSpinner size="lg" />
-      </div>
-    );
-  }
-
   if (!user) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
-        <GlassCard className="max-w-md text-center">
-          <p className="text-lg mb-4">يجب تسجيل الدخول للوصول إلى لوحة الإدارة</p>
-          <GradientButton variant="cyan" onClick={() => navigate('/')} className="w-full">
+        <GlassCard className="w-full max-w-md">
+          <h1 className="text-2xl font-bold text-center mb-3">تسجيل الدخول</h1>
+          <p className="text-sm text-white/70 text-center mb-6">يجب تسجيل الدخول للوصول إلى لوحة الإدارة</p>
+          <LoginForm />
+          <GradientButton variant="purple" onClick={() => navigate('/')} className="w-full mt-4">
             العودة للصفحة الرئيسية
           </GradientButton>
         </GlassCard>
@@ -74,7 +70,15 @@ export const Admin: React.FC = () => {
     );
   }
 
-  if (isAwaitingApproval) {
+  if (authLoading || !access || access.userId !== user.id) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
+
+  if (access.isAwaitingApproval) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <GlassCard className="max-w-md text-center">
@@ -98,7 +102,7 @@ export const Admin: React.FC = () => {
     );
   }
 
-  if (!isAdmin) {
+  if (!access.isAdmin) {
     return (
       <div className="min-h-screen flex items-center justify-center p-4">
         <GlassCard className="max-w-md text-center">
@@ -179,4 +183,3 @@ export const Admin: React.FC = () => {
     </div>
   );
 };
-
