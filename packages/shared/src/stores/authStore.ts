@@ -13,6 +13,8 @@ interface AuthState {
   signIn: (email: string, password: string) => Promise<{ user: User | null; error: AuthError | null }>;
   signOut: () => Promise<void>;
   checkSession: () => Promise<void>;
+  requestPasswordReset: (email: string, redirectTo: string) => Promise<{ error: AuthError | null }>;
+  updatePassword: (password: string) => Promise<{ error: AuthError | null }>;
   clearError: () => void;
 }
 
@@ -145,6 +147,33 @@ export const useAuthStore = create<AuthState>((set) => ({
     } catch (error: any) {
       console.error('Session check error:', error);
       set({ user: null, session: null, loading: false });
+    }
+  },
+
+  // Does not touch global loading/error so the login form's error box stays clean
+  requestPasswordReset: async (email: string, redirectTo: string) => {
+    try {
+      const supabase = getSupabase();
+      const { error } = await supabase.auth.resetPasswordForEmail(email, { redirectTo });
+      return { error };
+    } catch (error: any) {
+      return { error: error as AuthError };
+    }
+  },
+
+  updatePassword: async (password: string) => {
+    try {
+      const supabase = getSupabase();
+      const { data, error } = await supabase.auth.updateUser({ password });
+
+      if (error) {
+        return { error };
+      }
+
+      set({ user: data.user });
+      return { error: null };
+    } catch (error: any) {
+      return { error: error as AuthError };
     }
   },
 

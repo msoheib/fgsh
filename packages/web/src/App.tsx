@@ -19,6 +19,7 @@ import { Admin } from './pages/Admin';
 import { TVLobby } from './pages/TVLobby';
 import { TVGame } from './pages/TVGame';
 import { TVResults } from './pages/TVResults';
+import { ResetPassword } from './pages/ResetPassword';
 
 // Components
 import { ProtectedRoute } from './components/ProtectedRoute';
@@ -48,6 +49,13 @@ function AppContent() {
     if (currentPath === '/join') {
       clearGameSession();
       console.log('🎯 User is on join page - clearing old session');
+      useGameStore.setState({ rehydrationAttempted: true });
+      setIsRehydrating(false);
+      return;
+    }
+
+    if (currentPath === '/reset-password') {
+      // Don't let a stored game session redirect away from the password reset link
       useGameStore.setState({ rehydrationAttempted: true });
       setIsRehydrating(false);
       return;
@@ -109,6 +117,9 @@ function AppContent() {
 
         {/* Admin Dashboard - admin-only access handled in component */}
         <Route path="/admin" element={<Admin />} />
+
+        {/* Password reset - landing page for the recovery email link */}
+        <Route path="/reset-password" element={<ResetPassword />} />
 
         {/* Protected routes - require authentication */}
         <Route path="/payment/callback" element={<ProtectedRoute><PaymentCallback /></ProtectedRoute>} />
